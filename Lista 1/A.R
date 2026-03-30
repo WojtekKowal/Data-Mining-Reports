@@ -8,6 +8,7 @@ str(dane)
 dane[1] <- NULL
 summary(dane)
 #sa znalazłem tylko w TotalCharges, jako NA
+colSums(is.na(dane))
 #nie widze nietypowych wartosci
 summary(dane)
 library(skimr)
