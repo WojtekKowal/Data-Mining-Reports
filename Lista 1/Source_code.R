@@ -9,6 +9,8 @@ dane[1] <- NULL
 summary(dane)
 #sa znalazłem tylko w TotalCharges, jako NA
 colSums(is.na(dane))
+#NA sa tylko w total charges sa to nowi klienci, ktorzy jeszcze nic nie zaplacili wiec zastapimy to 0 (cos takiego by musialo tez w raporcie sie znalezc)
+dane$TotalCharges[is.na(dane$TotalCharges)] <- 0
 #nie widze nietypowych wartosci
 summary(dane)
 library(skimr)
@@ -305,5 +307,66 @@ ggplot(dane, aes(x = Churn, fill = Churn)) +
     y = "Ilość klientów",
   ) +
   theme_classic()
-# SEKCJA WORK IN PROGRESS!
 #teraz 2c)
+#rozrzut tenure z monthlyCharges, wykres 24
+ggplot(dane, aes(x=tenure,y=MonthlyCharges)) +
+  geom_point(
+    color = "firebrick2",
+    alpha = 0.5 # to daje ta przezroczystosc - widac nachodzace krokpi, można usunac
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    size = 1.5,
+  ) +
+  labs(
+    title = "Wykres rozrzutu stażu klienta i miesięcznych opłat",
+    x = "Staż klienta",
+    y = "Miesięczne opłaty",
+  ) +
+theme_classic()
+#rozrzut tenure z totalcharges, wykres 25
+ggplot(dane, aes(x=tenure,y=TotalCharges)) +
+  geom_point(
+    color = "steelblue",
+    alpha = 0.5 # to daje ta przezroczystosc - widac nachodzace kropki, można usunac
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    size = 1.5,
+    color ="firebrick",
+  ) +
+  labs(
+    title = "Wykres rozrzutu stażu klienta i całkowitych opłat",
+    x = "Staż klienta",
+    y = "Całkowite opłaty",
+  ) +
+  theme_classic()
+#rozrzut monthlycharges z totalcharges, wykres 26, nwm ile sensu on ma chociaż no widać że ci z samego konca rzadko odchodza
+ggplot(dane, aes(x=MonthlyCharges,y=TotalCharges)) +
+  geom_point(
+    color = "green2",
+    alpha = 0.5 # to daje ta przezroczystosc - widac nachodzace kropki, można usunac
+  ) +
+  geom_smooth(
+    method = "lm",
+    se = FALSE,
+    size = 1.5,
+    color ="black",
+  ) +
+  labs(
+    title = "Wykres rozrzutu miesięcznych i całkowitych opłat",
+    x = "Miesięczne opłaty",
+    y = "Całkowite opłaty",
+  ) +
+  theme_classic()
+# SEKCJA WORK IN PROGRESS!
+#2d)
+#Zinterpretuj otrzymane rezultaty, w szczególności odpowiadając na pytania:
+# i)Jaki jest zakres możliwych wartości dla poszczególnych zmiennych?
+# ii) W przypadku zmiennych ilościowych:
+# ii1)Czy wszystkie zmienne mają rozkład symetryczny?
+# ii2) Które cechy charakteryzują się największą zmiennoocią?
+# iii) W przypadku zmiennych jakościowych:
+# iii1) Co można powiedzieć o częstości przyjmowania poszczególnych kategorii?
