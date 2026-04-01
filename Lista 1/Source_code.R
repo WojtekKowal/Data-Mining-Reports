@@ -9,6 +9,7 @@ dane[1] <- NULL
 summary(dane)
 #sa znalazłem tylko w TotalCharges, jako NA
 colSums(is.na(dane))
+dane$tenure[is.na(dane$TotalCharges)] # widać że same 0!
 #NA sa tylko w total charges sa to nowi klienci, ktorzy jeszcze nic nie zaplacili wiec zastapimy to 0 (cos takiego by musialo tez w raporcie sie znalezc)
 dane$TotalCharges[is.na(dane$TotalCharges)] <- 0
 #nie widze nietypowych wartosci
@@ -123,6 +124,13 @@ ggplot(dane, aes(x = gender, fill = gender)) +
   geom_bar(
     color = "black",
     ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Wykres kolumnowy płci klientów",
     x = "Płeć",
@@ -134,6 +142,13 @@ ggplot(dane, aes(x = SeniorCitizen, fill = SeniorCitizen)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według statusu seniora",
     x = "Status seniora",
@@ -145,6 +160,13 @@ ggplot(dane, aes(x = Partner, fill = Partner)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania partnera",
     x = "Posiadanie partnera",
@@ -156,6 +178,13 @@ ggplot(dane, aes(x = Dependents, fill = Dependents)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania osoby na utrzymaniu",
     x = "Posiadanie osoby na utrzymaniu",
@@ -167,6 +196,13 @@ ggplot(dane, aes(x = PhoneService, fill = PhoneService)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania usługi telefonicznej",
     x = "Posiadanie usługi telefonicznej",
@@ -178,6 +214,13 @@ ggplot(dane, aes(x = MultipleLines, fill = MultipleLines)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według liczby linii telefonicznych",
     x = "Posiadanie wielu linii telefonicznych",
@@ -189,6 +232,13 @@ ggplot(dane, aes(x = InternetService, fill = InternetService)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania usługi internetowej",
     x = "Posiadanie usługi internetowej",
@@ -201,6 +251,13 @@ ggplot(dane, aes(x = OnlineSecurity, fill = OnlineSecurity)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania zabezpieczeń internetowych",
     x = "Posiadanie zabezpeiczeń internetowych",
@@ -212,6 +269,13 @@ ggplot(dane, aes(x = OnlineBackup, fill = OnlineBackup)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania kopii zapasowej w chmurze",
     x = "Posiadanie kopii zapasowej w chmurze",
@@ -223,6 +287,13 @@ ggplot(dane, aes(x = DeviceProtection, fill = DeviceProtection)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania zabezpieczenia urządzenia",
     x = "Posiadanie zabezpieczenia urządzenia",
@@ -234,6 +305,13 @@ ggplot(dane, aes(x = TechSupport, fill = TechSupport)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania wsparcia technicznego",
     x = "Posiadanie wsparcia technicznego",
@@ -245,6 +323,13 @@ ggplot(dane, aes(x = StreamingTV, fill = StreamingTV)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania telewizji strumieniowej",
     x = "Posiadanie telewizji strumieniowej",
@@ -256,6 +341,13 @@ ggplot(dane, aes(x = StreamingMovies, fill = StreamingMovies)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania filmów na żądanie",
     x = "Posiadanie filmów na żądanie",
@@ -267,6 +359,13 @@ ggplot(dane, aes(x = Contract, fill = Contract)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według długości umowy",
     x = "Posiadana długość umowy",
@@ -279,6 +378,13 @@ ggplot(dane, aes(x = PaperlessBilling, fill = PaperlessBilling)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według posiadania elektronicznej faktury",
     x = "Posiadanie elektronicznej faktury",
@@ -290,6 +396,13 @@ ggplot(dane, aes(x = PaymentMethod, fill = PaymentMethod)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci metody płatności",
     x = "Wybrana metoda płatności",
@@ -301,6 +414,13 @@ ggplot(dane, aes(x = Churn, fill = Churn)) +
   geom_bar(
     color = "black",
   ) +
+  geom_text(
+    stat = "count",
+    bins = 35,
+    aes(label = after_stat(count)),
+    vjust = -0.5,
+    size = 4,
+  )+
   labs(
     title = "Klienci według pozostania przy firmie",
     x = "Pozostanie przy firmie",
