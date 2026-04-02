@@ -1,0 +1,320 @@
+---
+title: "Sprawozdanie z listy 1"
+subtitle: "Eksploracja danych"
+author: "Piotr Katur, Wojciech Kowal"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+    fig_caption: yes
+    number_sections: true
+header-includes:
+   - \usepackage[OT4]{polski}
+   - \usepackage[utf8]{inputenc}
+   - \usepackage{graphicx}
+   - \usepackage{float}
+fontsize: 12pt 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+knitr::opts_chunk$set(fig.pos = "H", out.extra = "", fig.align = "center")
+```
+
+# Krótki opis zagadnienia
+
+Celem poniższego sprawozdania jest eksploracja i analiza danych dotyczących klientów firmy telekomunikacyjnej (wykorzystano zbiór danych `WA_Fn-UseC_-Telco-Customer-Churn.csv`). W szczególności zbadane zostaną czynniki wpływające na rezygnację klientów z usług (zjawisko *Churn*). 
+
+# Opis analiz
+
+Analiza została przeprowadzona w środowisku R i podzielono ją na cztery główne etapy:
+
+1. Przygotowanie i oczyszczenie zbioru danych.
+2. Analiza opisowa poszczególnych zmiennych (wskaźniki sumaryczne i wizualizacje).
+3. Analiza porównawcza z podziałem na grupy (lojalni klienci vs. klienci odchodzący).
+4. Podsumowanie i wyciągnięcie wniosków biznesowych.
+
+Do wykonania wizualizacji oraz odpowiedniego formatowania wykresów wykorzystano biblioteki `ggplot2` oraz `patchwork`.
+
+# Etap 1. Przygotowanie danych. Podstawowe informacje o danych
+
+## Wczytanie zbioru danych i weryfikacja typów zmiennych
+
+```{r wczytanie_danych}
+dane <- read.csv(file="WA_Fn-UseC_-Telco-Customer-Churn.csv", stringsAsFactors = TRUE)
+```
+
+## Struktura danych i czyszczenie
+
+* **Jaki jest rozmiar danych?**
+  Zbiór danych składa się z **7043 obserwacji** oraz **21 cech**.
+
+* **Jakie są typy poszczególnych cech?**
+  Większość cech w zbiorze to zmienne jakościowe (typ `factor`). Początkowo zidentyfikowano jedynie cztery zmienne wczytane jako ilościowe (liczbowe/numeryczne): `SeniorCitizen`, `tenure`, `MonthlyCharges` oraz `TotalCharges`.
+
+* **Czy wszystkie cechy będą przydatne w analizie? (Identyfikatory)**
+  Nie wszystkie. Pierwsza kolumna w zbiorze to `customerID`, która identyfikuje każdego klienta. Pełni ona rolę klucza głównego i nie niesie żadnych użytecznych informacji (nie ma wpływu na zachowanie klienta). W związku z tym została usunięta ze zbioru.
+  
+```{r usuniecie_id}
+# Usunięcie cechy pełniącej rolę identyfikatora
+dane$customerID <- NULL
+```
+
+* **Czy w danych występują brakujące obserwacje i jak są kodowane?**
+
+Tak, w danych znalazły się braki, czyli wartości `NA`. Występują one wyłącznie w jednej kolumnie: `TotalCharges` (Całkowite opłaty) i dotyczą 11 obserwacji. Po sprawdzeniu tych rekordów okazało się, że są to nowi klienci, których staż w firmie (`tenure`) wynosi równe 0 miesięcy. Skoro nie zdążyli oni jeszcze opłacić żadnego rachunku, logicznym jest zastąpienie `NA` wartością `0`.
+
+```{r imputacja_brakow}
+# Zastąpienie wartości NA zerami dla najnowszych klientów
+dane$TotalCharges[is.na(dane$TotalCharges)] <- 0
+```
+
+* **Czy w danych występują nietypowe wartości?**
+  Występował jeden problem ze strukturą: zmienna `SeniorCitizen` została wczytana jako liczbowa (przyjmując wartości 0 i 1). W istocie określa ona status seniora i jest cechą jakościową. W celu poprawy, zmieniono jej typ na `factor` i przypisano etykiety ("No", "Yes").
+
+```{r korekta_typow}
+# Zamiana SeniorCitizen na factor i nadanie etykiet
+dane$SeniorCitizen <- as.factor(dane$SeniorCitizen)
+levels(dane$SeniorCitizen) <- c("No", "Yes")
+```
+  
+# Etap 2. Analiza opisowa – wskaźniki sumaryczne i wykresy
+
+## Podstawowe wskaźniki sumaryczne
+
+* **tenure (staż klienta):** Klienci pozostają w firmie średnio 32.37 miesiąca, jednak mediana wynosi 29 miesięcy.
+* **MonthlyCharges (opłaty miesięczne):** Średnia opłata to około 64.76, podczas gdy mediana wynosi 70.35. 
+* **TotalCharges (całkowite opłaty):** Średnia to około 2279.7. Różnica między medianą (1394.5) a średnią wskazuje na asymetrię rozkładu.
+
+## Rozkład poszczególnych cech i interpretacja
+
+### Zmienne ilościowe
+
+```{r wykresy_ilosciowe, echo=FALSE, fig.height=8, fig.width=12, out.width="100%", fig.cap="Zestawienie rozkładów dla zmiennych ilościowych."}
+library(ggplot2)
+library(patchwork)
+
+# Wykres 1
+p1 <- ggplot(dane, aes(x = MonthlyCharges)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 30) +
+  labs(title = "Histogram miesięcznych opłat", x = "Miesięczne opłaty", y = "Liczba klientów") +
+  theme_minimal()
+
+# Wykres 2
+p2 <- ggplot(dane, aes(x = tenure)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 35) +
+  labs(title = "Histogram stażu klienta", x = "Ilość miesięcy", y = "Liczba klientów") +
+  theme_minimal()
+
+# Wykres 3
+p3 <- ggplot(dane, aes(x = TotalCharges)) +
+  geom_histogram(fill = "steelblue", color = "white", bins = 30) +
+  labs(title = "Histogram całkowitych opłat", x = "Wysokość opłat", y = "Liczba klientów") +
+  theme_minimal()
+
+# Wykres 4
+p4 <- ggplot(dane, aes(y = TotalCharges)) +
+  geom_boxplot(fill = "gray", color = "black") +
+  labs(y = "Całkowite opłaty", title = "Wykres pudełkowy całkowitych opłat") +
+  theme_minimal()
+
+(p1 | p2) / (p3 | p4)
+```
+
+**Interpretacja rezultatów dla zmiennych ilościowych:**
+
+* **Jaki jest zakres możliwych wartości?**
+  Zmienna `tenure` przyjmuje wartości z przedziału [0, 72] miesięcy. Zmienna `MonthlyCharges` waha się w przedziale [18.25, 118.75], natomiast `TotalCharges` przyjmuje wartości od 0 do 8684.8.
+
+* **Czy wszystkie zmienne mają rozkład symetryczny?**
+
+* **Które cechy charakteryzują się największą zmiennością?**
+
+### Zmienne jakościowe
+
+```{r wykresy_jakosciowe, echo=FALSE, fig.height=8, fig.width=12, out.width="100%", fig.cap="Zestawienie rozkładów dla kluczowych zmiennych jakościowych."}
+# Wykres 1: Churn
+p1 <- ggplot(dane, aes(x = Churn, fill = Churn)) +
+  geom_bar(color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  labs(title = "Klienci według pozostania przy firmie", x = "Pozostanie przy firmie", y = "Ilość klientów") +
+  theme_classic()
+
+# Wykres 2: Contract
+p2 <- ggplot(dane, aes(x = Contract, fill = Contract)) +
+  geom_bar(color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  labs(title = "Klienci według długości umowy", x = "Rodzaj umowy", y = "Ilość klientów") +
+  theme_classic()
+
+# Wykres 3: InternetService
+p3 <- ggplot(dane, aes(x = InternetService, fill = InternetService)) +
+  geom_bar(color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  labs(title = "Klienci według usługi internetowej", x = "Usługa internetowa", y = "Ilość klientów") +
+  theme_classic()
+
+# Wykres 4: PaymentMethod
+p4 <- ggplot(dane, aes(x = PaymentMethod, fill = PaymentMethod)) +
+  geom_bar(color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  labs(title = "Klienci według metody płatności", x = "Metoda płatności", y = "Ilość klientów") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1)) 
+
+(p1 | p2) / (p3 | p4)
+```
+
+**Interpretacja rezultatów dla zmiennych jakościowych:**
+
+* **Jaki jest zakres możliwych wartości?**
+  Zmienne kategoryczne przyjmują zazwyczaj 2 wartości (np. "Yes"/"No" dla Churn lub usług dodatkowych) lub od 3 do 4 wartości w przypadku cech bardziej złożonych (np. 3 rodzaje dla `Contract` i `InternetService`, 4 dla `PaymentMethod`).
+
+* **Co można powiedzieć o częstości przyjmowania poszczególnych kategorii?**
+  Większość klientów (5174, co stanowi ~73%) pozostaje w firmie, a rezygnuje około 27% (1869). 
+  W przypadku rodzaju umów (`Contract`), najczęstszą formą jest umowa odnawiana co miesiąc ("Month-to-month").
+  Z wykresu usług internetowych wynika, że najpopularniejszym łączem jest światłowód (Fiber optic), przeważa on nad DSL. 
+  Wśród metod płatności dominuje "Electronic check".
+
+## Analiza zależności pomiędzy zmiennymi ciągłymi
+
+```{r wykresy_rozrzutu, echo=FALSE, fig.height=4, fig.width=10, out.width="100%", fig.cap="Wykresy rozrzutu dla zmiennych ciągłych wraz z dopasowaną prostą regresji."}
+p_rozrzut1 <- ggplot(dane, aes(x=tenure, y=TotalCharges)) +
+  geom_point(color = "steelblue", alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, size = 1.5, color ="firebrick") +
+  labs(title = "Staż klienta a Całkowite opłaty", x = "Staż klienta", y = "Całkowite opłaty") +
+  theme_classic()
+
+p_rozrzut2 <- ggplot(dane, aes(x=MonthlyCharges, y=TotalCharges)) +
+  geom_point(color = "green2", alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, size = 1.5, color ="black") +
+  labs(title = "Miesięczne opłaty a Całkowite opłaty", x = "Miesięczne opłaty", y = "Całkowite opłaty") +
+  theme_classic()
+
+p_rozrzut1 | p_rozrzut2
+```
+
+**Interpretacja zależności:**
+Na pierwszym wykresie widać wyraźną zależność liniową między stażem klienta a całkowitymi opłatami – im dłużej klient korzysta z usług, tym wyższa jest suma opłaconych przez niego rachunków. Podobnie, wyższe opłaty miesięczne korelują z szybszym przyrostem całkowitych opłat.
+
+# Etap 3. Analiza opisowa z podziałem na grupy
+
+## Wskaźniki opisowe i wykresy z podziałem na grupy (Churn)
+
+W dalszej analizie, zbiór danych podzielono na dwie podgrupy:
+
+* **Grupa 1 (Churn == 'Yes'):** Klienci, którzy zrezygnowali z usług (odeszli).
+* **Grupa 2 (Churn == 'No'):** Klienci kontynuujący współpracę.
+
+### Zmienne ilościowe - wykresy pudełkowe
+
+```{r wykresy_box_churn, echo=FALSE, fig.height=4, fig.width=10, out.width="100%", fig.cap="Wykresy pudełkowe zmiennych ilościowych w podziale na grupy (Churn)."}
+b1 <- ggplot(dane, aes(x= Churn, y = tenure, fill=Churn)) +
+  geom_boxplot(color = "black") +
+  scale_fill_manual(values = c("No" = "mediumblue", "Yes" = "firebrick2")) +
+  labs(y= "Liczba miesięcy", title= "Staż klienta") +
+  theme_minimal() + theme(legend.position = "none")
+
+b2 <- ggplot(dane, aes(x=Churn, y = MonthlyCharges, fill=Churn)) +
+  geom_boxplot(color = "black") +
+  scale_fill_manual(values = c("No" = "mediumblue", "Yes" = "firebrick2")) +
+  labs(y= "Miesięczne opłaty", title= "Opłaty miesięczne") +
+  theme_minimal() + theme(legend.position = "none")
+
+b3 <- ggplot(dane, aes(x=Churn, y = TotalCharges, fill=Churn)) +
+  geom_boxplot(color = "black") +
+  scale_fill_manual(values = c("No" = "mediumblue", "Yes" = "firebrick2")) +
+  labs(y= "Całkowite opłaty", title= "Opłaty całkowite") +
+  theme_minimal() + theme(legend.position = "none")
+
+b1 | b2 | b3
+```
+
+### Zmienne jakościowe - kluczowe wykresy kolumnowe
+
+```{r wykresy_bar_churn, echo=FALSE, fig.height=8, fig.width=12, out.width="100%", fig.cap="Zestawienie wybranych zmiennych jakościowych w podziale na Churn."}
+# Typ umowy (Contract)
+p1 <- ggplot(dane, aes(x = Contract, fill = Churn)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  labs(title = "Rodzaj umowy a rezygnacja", x = "Długość umowy", y = "Liczba klientów") +
+  theme_classic()
+
+# Usługa internetowa (InternetService)
+p2 <- ggplot(dane, aes(x = InternetService, fill = Churn)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  labs(title = "Usługa internetowa a rezygnacja", x = "Rodzaj internetu", y = "Liczba klientów") +
+  theme_classic()
+
+# Wsparcie techniczne (TechSupport)
+p3 <- ggplot(dane, aes(x = TechSupport, fill = Churn)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  labs(title = "Wsparcie techniczne a rezygnacja", x = "Brak wsparcia vs Posiadanie", y = "Liczba klientów") +
+  theme_classic()
+
+# Metoda płatności (PaymentMethod)
+p4 <- ggplot(dane, aes(x = PaymentMethod, fill = Churn)) +
+  geom_bar(position = "dodge", color = "black") +
+  scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  labs(title = "Metoda płatności a rezygnacja", x = "Wybrana metoda płatności", y = "Liczba klientów") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+(p1 | p2) / (p3 | p4)
+```
+
+## Cechy najlepiej różnicujące klientów
+
+**1. Zmienne ilościowe:**
+
+* **Staż klienta (`tenure`):** Klienci rezygnujący (Churn = "Yes") mają bardzo mocno skupiony rozkład przy małych wartościach (mediana to zaledwie kilka miesięcy), co oznacza, że rezygnują bardzo szybko po podpisaniu umowy. Klienci lojalni to w dużej mierze osoby o długim stażu (mediana to kilkadziesiąt miesięcy).
+* **Miesięczne opłaty (`MonthlyCharges`):** Klienci płacący więcej miesięcznie (mediana rzędu blisko 80) częściej rezygnują z usług w porównaniu do grupy pozostającej, gdzie rozkład opłat jest szerszy, a mediana niższa (ok. 65).
+
+**2. Zmienne jakościowe:**
+
+* **Rodzaj umowy (`Contract`):** Ogromna większość klientów, którzy zrezygnowali, posiadała umowę odnawianą co miesiąc ("Month-to-month"). Odsetek rezygnacji wśród klientów z umowami na rok lub dwa lata ("One year", "Two year") jest bardzo mały.
+* **Typ internetu (`InternetService`):** Klienci posiadający światłowód ("Fiber optic") decydują się na odejście częściej niż użytkownicy łącza "DSL" lub osoby w ogóle niekorzystające z internetu.
+* **Usługi wsparcia i bezpieczeństwa (`TechSupport`, `OnlineSecurity`):** Z wykresów wynika, że brak dodatkowego wsparcia technicznego jest powiązany z wyższym wskaźnikiem rezygnacji.
+* **Metoda płatności (`PaymentMethod`):** Klienci opłacający rachunki za pomocą elektronicznego czeku ("Electronic check") rezygnują drastycznie częściej niż osoby korzystające z innych metod, np. kart kredytowych czy przelewów bankowych.
+
+# Etap 4. Podsumowanie – wnioski z przeprowadzonej analizy
+
+## Krótkie podsumowanie wyników z etapów 1–3
+
+W trakcie analizy przeszliśmy przez trzy główne kroki:
+
+1. **Etap 1 (Przygotowanie danych):** Zbiór danych był całkiem uporządkowany. Wymagał jedynie drobnych poprawek, takich jak usunięcie niepotrzebnego ID klienta oraz wstawienie zer w opłatach u zupełnie nowych klientów.
+2. **Etap 2 (Analiza opisowa):** Wykresy pokazały nam ogólny obraz sytuacji. Zauważyliśmy m.in., że większość klientów (około 73%) zostaje w firmie, a 27% decyduje się na odejście.
+3. **Etap 3 (Analiza opisowa z podziałem na grupy):** Dzieląc klientów na tych, którzy odeszli i tych, którzy zostali, odkryliśmy, że rezygnacja z usług nie jest przypadkowa. Bardzo mocno zależy ona od takich rzeczy jak rodzaj umowy czy staż klienta.
+
+## Profil typowego klienta firmy
+
+Na podstawie danych dowiedzieliśmy następujących faktór o klientach:
+
+* **Kim są?** Klienci dzielą się mniej więcej po równo na kobiety i mężczyzn. Większość z nich nie ma nikogo na utrzymaniu i nie zalicza się do grupy seniorów.
+* **Czego używają?** Prawie wszyscy mają telefon, a w przypadku internetu najchętniej wybierają światłowód. Dodatkowe usługi, jak telewizja czy filmy na żądanie, interesują około połowę z nich.
+* **Jakie mają umowy?** Klienci bardzo cenią sobie elastyczność – zdecydowanie najczęściej wybierają umowę odnawianą z miesiąca na miesiąc i płacą za pomocą elektronicznego czeku.
+
+## Przyczyny odchodzenia (Churn) i co firma może z tym zrobić
+
+### Dlaczego klienci odchodzą?
+Analiza wykazała, że klienci, którzy rezygnują z usług firmy, mają wspólne cechy:
+
+1. **Odchodzą bardzo szybko:** Najwięcej rezygnacji pojawia się w pierwszych miesiącach po podpisaniu umowy.
+2. **Mają krótkie umowy:** Odchodzą głównie osoby z umowami "z miesiąca na miesiąc", ponieważ mogą to zrobić w każdej chwili bez konsekwencji.
+3. **Mają światłowód:** O dziwo, klienci korzystający ze światłowodu rezygnują częściej niż reszta. Może to oznaczać, że usługa ta jest za droga albo sprawia problemy techniczne.
+4. **Nie mają wsparcia technicznego:** Osoby, które nie wykupiły dodatkowego wsparcia technicznego, częściej rezygnują z usług.
+
+### Co firma powinna zrobić?
+Aby zatrzymać klientów, firma mogłaby wprowadzić kilka zmian:
+
+1. **Zachęcać do dłuższych umów:** Skoro umowy miesięczne to główny powód ucieczek, warto kusić klientów zniżkami za podpisanie umowy na rok lub dwa lata.
+2. **Zaopiekować się nowymi klientami:** Skoro klienci odchodzą na samym początku, firma powinna w pierwszych miesiącach częściej sprawdzać, czy wszystko u nich działa i czy są zadowoleni.
+3. **Sprawdzić światłowody:** Należy sprawdzić, dlaczego ta usługa traci klientów – być może trzeba poprawić jej jakość lub obniżyć cenę.
