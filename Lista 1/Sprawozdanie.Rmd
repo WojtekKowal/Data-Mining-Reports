@@ -83,9 +83,27 @@ levels(dane$SeniorCitizen) <- c("No", "Yes")
 
 ## Podstawowe wskaźniki sumaryczne
 
-* **tenure (staż klienta):** Klienci pozostają w firmie średnio 32.37 miesiąca, jednak mediana wynosi 29 miesięcy.
+```{r statystyki_opisowe, echo=FALSE}
+library(knitr)
+tabela_stat <- data.frame(
+  Zmienna = c("Staż (tenure)", "Miesięczne (MonthlyCharges)", "Całkowite (TotalCharges)"),
+  Minimum = c(min(dane$tenure), min(dane$MonthlyCharges), min(dane$TotalCharges)),
+  Mediana = c(median(dane$tenure), median(dane$MonthlyCharges), median(dane$TotalCharges)),
+  Srednia = c(round(mean(dane$tenure), 2), round(mean(dane$MonthlyCharges), 2), round(mean(dane$TotalCharges), 2)),
+  Maksimum = c(max(dane$tenure), max(dane$MonthlyCharges), max(dane$TotalCharges)),
+  Odch_std = c(round(sd(dane$tenure), 2), round(sd(dane$MonthlyCharges), 2), round(sd(dane$TotalCharges), 2)),
+  IQR = c(IQR(dane$tenure), IQR(dane$MonthlyCharges), IQR(dane$TotalCharges))
+)
+
+kable(tabela_stat, 
+      caption = "Podstawowe wskaźniki sumaryczne dla zmiennych ilościowych",
+      col.names = c("Zmienna", "Minimum", "Mediana", "Średnia", "Maksimum", "Odch. std.", "IQR"))
+```
+
+* **Tenure (staż klienta):** Klienci pozostają w firmie średnio 32.37 miesiąca, jednak mediana wynosi 29 miesięcy.
 * **MonthlyCharges (opłaty miesięczne):** Średnia opłata to około 64.76, podczas gdy mediana wynosi 70.35. 
 * **TotalCharges (całkowite opłaty):** Średnia to około 2279.7. Różnica między medianą (1394.5) a średnią wskazuje na asymetrię rozkładu.
+
 
 ## Rozkład poszczególnych cech i interpretacja
 
@@ -128,8 +146,13 @@ p4 <- ggplot(dane, aes(y = TotalCharges)) +
   Zmienna `tenure` przyjmuje wartości z przedziału [0, 72] miesięcy. Zmienna `MonthlyCharges` waha się w przedziale [18.25, 118.75], natomiast `TotalCharges` przyjmuje wartości od 0 do 8684.8.
 
 * **Czy wszystkie zmienne mają rozkład symetryczny?**
+Żadna z analizowanych zmiennych nie posiada rozkładu symetrycznego.
+  * Rozkład całkowitych opłat (`TotalCharges`) jest prawoskośny – histogram pokazuje, że zdecydowana większość klientów wygenerowała mniejsze łączne kwoty, a bardzo wysokie sumy należą są rzadkością. 
+  * Na rozkładzie stażu klienta (`tenure`) widać, że w firmie dominują dwie skrajne grupy: klienci nowi (najwyższy słupek w okolicach 0 miesięcy) oraz bardzo lojalni (prawy skraj wykresu, ok. 70-72 miesiące).
+  * Rozkład opłat miesięcznych (`MonthlyCharges`) również jest asymetryczny, ze szczytem dla najniższych opłat (w okolicach wartości 20).
 
 * **Które cechy charakteryzują się największą zmiennością?**
+  Największą zmiennością charakteryzuje się zmienna `TotalCharges` (całkowite opłaty). Widać to na wykresie pudełkowym w prawym dolnym rogu – samo pudełko (reprezentujące środkowe 50% obserwacji) jest dość wysokie. Takie zróżnicowanie jest jednak naturalne, ponieważ opłaty rosną wraz ze stażem klienta.
 
 ### Zmienne jakościowe
 
@@ -137,28 +160,28 @@ p4 <- ggplot(dane, aes(y = TotalCharges)) +
 # Wykres 1: Churn
 p1 <- ggplot(dane, aes(x = Churn, fill = Churn)) +
   geom_bar(color = "black") +
-  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Klienci według pozostania przy firmie", x = "Pozostanie przy firmie", y = "Ilość klientów") +
   theme_classic()
 
 # Wykres 2: Contract
 p2 <- ggplot(dane, aes(x = Contract, fill = Contract)) +
   geom_bar(color = "black") +
-  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Klienci według długości umowy", x = "Rodzaj umowy", y = "Ilość klientów") +
   theme_classic()
 
 # Wykres 3: InternetService
 p3 <- ggplot(dane, aes(x = InternetService, fill = InternetService)) +
   geom_bar(color = "black") +
-  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Klienci według usługi internetowej", x = "Usługa internetowa", y = "Ilość klientów") +
   theme_classic()
 
 # Wykres 4: PaymentMethod
 p4 <- ggplot(dane, aes(x = PaymentMethod, fill = PaymentMethod)) +
   geom_bar(color = "black") +
-  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Klienci według metody płatności", x = "Metoda płatności", y = "Ilość klientów") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 15, hjust = 1)) 
@@ -238,7 +261,7 @@ b1 | b2 | b3
 p1 <- ggplot(dane, aes(x = Contract, fill = Churn)) +
   geom_bar(position = "dodge", color = "black") +
   scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
-  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Rodzaj umowy a rezygnacja", x = "Długość umowy", y = "Liczba klientów") +
   theme_classic()
 
@@ -246,7 +269,7 @@ p1 <- ggplot(dane, aes(x = Contract, fill = Churn)) +
 p2 <- ggplot(dane, aes(x = InternetService, fill = Churn)) +
   geom_bar(position = "dodge", color = "black") +
   scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
-  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Usługa internetowa a rezygnacja", x = "Rodzaj internetu", y = "Liczba klientów") +
   theme_classic()
 
@@ -254,7 +277,7 @@ p2 <- ggplot(dane, aes(x = InternetService, fill = Churn)) +
 p3 <- ggplot(dane, aes(x = TechSupport, fill = Churn)) +
   geom_bar(position = "dodge", color = "black") +
   scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
-  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Wsparcie techniczne a rezygnacja", x = "Brak wsparcia vs Posiadanie", y = "Liczba klientów") +
   theme_classic()
 
@@ -262,7 +285,7 @@ p3 <- ggplot(dane, aes(x = TechSupport, fill = Churn)) +
 p4 <- ggplot(dane, aes(x = PaymentMethod, fill = Churn)) +
   geom_bar(position = "dodge", color = "black") +
   scale_fill_manual(values = c("No" = "cornflowerblue", "Yes" = "coral")) +
-  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) +
+  geom_text(stat = "count", aes(label = after_stat(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 4) + scale_y_continuous(expand = expansion(mult = c(0, 0.1))) +
   labs(title = "Metoda płatności a rezygnacja", x = "Wybrana metoda płatności", y = "Liczba klientów") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 15, hjust = 1))
