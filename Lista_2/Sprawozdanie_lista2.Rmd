@@ -1,0 +1,460 @@
+---
+title: "Sprawozdanie lista 2"
+author: "Piotr Kaptur, Wojciech Kowal"
+date: "`r Sys.Date()`"
+lang: pl
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+    extra_dependencies: ["float"]
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    number_sections: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, 
+                      fig.width = 9, fig.height = 6, 
+                      fig.pos = "H", out.extra = "")
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(arules)
+library(gridExtra)
+library(knitr)
+library(titanic)
+library(cluster)
+library(MASS)
+
+theme_set(theme_bw(base_size = 12) +
+  theme(plot.title = element_blank(),
+        plot.subtitle = element_text(size = 10, colour = "grey40"),
+        legend.position = "bottom"))
+
+PALETTE <- c("setosa" = "#4A148C", "versicolor" = "#2196F3", "virginica" = "#D81B60")
+PALETTE_IRIS <- c("setosa" = "#4A148C", "versicolor" = "#2196F3", "virginica" = "#D81B60")
+```
+
+# Zadanie 1
+## Opis danych 
+
+W poniższej analizie wykorzystano zbiór danych `iris` (dostępny w podstawowym pakiecie `datasets` środowiska R). Zbiór ten zawiera wyniki pomiarów uzyskanych dla trzech gatunków irysów: *setosa*, *versicolor* i *virginica*. Został on udostępniony przez Ronalda Fishera w 1936 roku.
+
+Pomiary obejmują cztery zmienne ciągłe (wyrażone w centymetrach), dotyczące długości oraz szerokości dwóch różnych części kwiatu:
+
+* `Sepal.Length` – długość działki kielicha,
+* `Sepal.Width` – szerokość działki kielicha,
+* `Petal.Length` – długość płatka,
+* `Petal.Width` – szerokość płatka.
+
+Przegląd podstawowych statystyk opisowych zbioru:
+
+```{r dane_summary, echo=FALSE}
+data(iris)
+summary(iris)
+```
+
+## Wybór cech i analiza zdolności dyskryminacyjnej
+
+Celem tego etapu jest wybór dwóch cech: jednej o **najlepszej** i jednej o **najgorszej** zdolności dyskryminacyjnej. W tym celu wykorzystano narzędzia analizy wizualnej: rozkłady gęstości oraz wykresy pudełkowe wzbogacone o rozrzut punktów.
+
+### Wizualizacja rozkładów
+
+```{r wykres_gestosci, fig.height=5.5, out.width="95%", echo=FALSE, fig.cap="Rozkłady gęstości cech zbioru iris w podziale na gatunki."}
+library(ggplot2)
+library(tidyr)
+
+df_long <- iris %>%
+  pivot_longer(cols = -Species, names_to = "Cecha", values_to = "Wartość")
+
+#rozkłady gęstości
+p_density <- ggplot(df_long, aes(x = Wartość, fill = Species, colour = Species)) +
+  geom_density(alpha = 0.3, linewidth = 0.7) +
+  facet_wrap(~ Cecha, scales = "free", ncol = 2) +
+  scale_fill_manual(values = PALETTE) +
+  scale_colour_manual(values = PALETTE) +
+  labs(title = "Rozkłady gęstości cech (per gatunek)",
+       x = "Wartość [cm]", y = "Gęstość", fill = "Gatunek", colour = "Gatunek")
+
+p_density
+```
+
+```{r wykres_pudelkowy, fig.height=5.5, out.width="95%", echo=FALSE, fig.cap="Wykresy pudełkowe cech zbioru iris z nałożonym rozrzutem punktów."}
+
+df_long <- iris %>%
+  pivot_longer(cols = -Species, names_to = "Cecha", values_to = "Wartość")
+
+#wykresy pudełkowe
+p_box <- ggplot(df_long, aes(x = Species, y = Wartość, fill = Species)) +
+  geom_boxplot(alpha = 0.60, outlier.colour = NA) +
+  geom_jitter(aes(colour = Species), width = 0.15, size = 1, alpha = 0.5) +
+  facet_wrap(~ Cecha, scales = "free_y", ncol = 2) +
+  scale_fill_manual(values = PALETTE) +
+  scale_colour_manual(values = PALETTE) +
+  labs(title = "Wykresy pudełkowe cech",
+       subtitle = "Brak nakładania się 'pudełek' wskazuje na dobrą separację klas",
+       x = NULL, y = "Wartość [cm]") +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 15, hjust = 1))
+
+p_box
+```
+
+### Wnioski i wskazanie cech
+
+Na podstawie powyższej analizy możemy wyciągnąć następujące wnioski:
+
+1. **Cecha o najlepszej zdolności dyskryminacyjnej: `Petal.Length`**
+   * **Uzasadnienie:** Zarówno na wykresach gęstości, jak i na wykresach pudełkowych widać bardzo wyraźną separację. Gatunek *setosa* jest całkowicie oddzielony od pozostałych. Gatunki *versicolor* i *virginica* zachodzą na siebie jedynie w minimalnym stopniu. Cecha ta niesie bardzo silną informację o przynależności do danej klasy. Podobne, bardzo dobre właściwości wykazuje również `Petal.Width`.
+
+2. **Cecha o najgorszej zdolności dyskryminacyjnej: `Sepal.Width`**
+   * **Uzasadnienie:** Dla tej cechy "pudełka" (reprezentujące pierwszy i trzeci kwartyl) silnie na siebie zachodzą dla wszystkich trzech gatunków, a krzywe gęstości w dużej mierze się pokrywają. Na podstawie samej szerokości działki kielicha bardzo trudno jest jednoznacznie zidentyfikować gatunek irysa.
+
+Do dalszego etapu zadania (porównania metod dyskretyzacji) wybrane zostaną zmienne: `Petal.Length` jaki najlepsza cecha dyskryminacyjna oraz `Sepal.Width` najgorsza z nich.
+
+## Porównanie nienadzorowanych metod dyskretyzacji
+
+W tej części sprawozdania zastosowano cztery metody dyskretyzacji nienadzorowanej (przyjmując liczbę kategorii $K = 3$) dla wytypowanych wcześniej cech: `Petal.Length` (najlepszej) oraz `Sepal.Width` (najgorszej).
+
+Analizowane algorytmy to:
+
+1. **Equal Width** (przedziały o równej szerokości),
+2. **Equal Frequency** (przedziały o zbliżonej liczebności obserwacji),
+3. **K-means clustering** (algorytm centroidów k-średnich),
+4. **User-defined** (przedziały zadane przez użytkownika).
+
+### Przeprowadzenie dyskretyzacji i wizualizacja podziałów
+
+```{r dyskretyzacja_najlepsza, fig.height=5.5, out.width="95%", echo=FALSE, fig.cap="Wizualizacja podziałów dyskretyzacji dla najlepszej cechy (Petal.Length). Linie przerywane oznaczają wyznaczone punkty podziału."}
+library(arules)
+library(gridExtra)
+
+K <- 3
+best_feat <- "Petal.Length"
+worst_feat <- "Sepal.Width"
+
+wykonaj_dyskretyzacje <- function(nazwa_cechy) {
+  x <- iris[[nazwa_cechy]]
+  d_ew <- discretize(x, method = "interval", breaks = K)
+  d_ef <- discretize(x, method = "frequency", breaks = K)
+  d_km <- discretize(x, method = "cluster", breaks = K)
+  rng <- range(x)
+  span <- rng[2] - rng[1]
+  d_ud <- cut(x, 
+              breaks = c(-Inf, rng[1] + 0.3 * span, rng[1] + 0.65 * span, Inf),
+              labels = c("Grupa 1", "Grupa 2", "Grupa 3"))
+  list(ew = d_ew, ef = d_ef, km = d_km, ud = d_ud)
+}
+
+disc_best <- wykonaj_dyskretyzacje(best_feat)
+disc_worst <- wykonaj_dyskretyzacje(worst_feat)
+
+methods <- c("ew", "ef", "km", "ud")
+methods_lab <- c(ew = "Equal Width", ef = "Equal Frequency", 
+                 km = "K-means",     ud = "User-defined")
+
+plot_lecture_breaks <- function(feat, disc_list) {
+  x <- iris[[feat]]
+  set.seed(73)
+  y_rand <- runif(length(x), 0, 20)
+  lapply(methods, function(m) {
+    d <- disc_list[[m]]
+    grp_med <- sort(tapply(x, d, median))
+    ord_lvls <- names(grp_med)
+    bounds <- numeric(0)
+    for (i in 1:(length(ord_lvls) - 1)) {
+      max_curr <- max(x[d == ord_lvls[i]], na.rm = TRUE)
+      min_next <- min(x[d == ord_lvls[i + 1]], na.rm = TRUE)
+      bounds <- c(bounds, (max_curr + min_next) / 2)
+    }
+    ggplot(data.frame(x = x, y = y_rand, Gatunek = iris$Species), 
+           aes(x = x, y = y, colour = Gatunek)) +
+      geom_point(size = 1.8, alpha = 0.8) +
+      geom_vline(xintercept = bounds, linetype = "dashed", 
+                 colour = "grey20", linewidth = 0.8) +
+      scale_colour_manual(values = PALETTE) +
+      labs(subtitle = methods_lab[m], x = paste(feat, "[cm]"), y = "") +
+      theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+            panel.grid.major.y = element_blank(), panel.grid.minor.y = element_blank(),
+            legend.position = "none", plot.subtitle = element_text(size = 11, face = "bold"))
+  })
+}
+
+grid.arrange(grobs = plot_lecture_breaks(best_feat, disc_best), ncol = 2)
+```
+
+```{r dyskretyzacja_najgorsza, fig.height=5.5, out.width="95%", echo=FALSE, fig.cap="Wizualizacja podziałów dyskretyzacji dla najgorszej cechy (Sepal.Width)."}
+grid.arrange(grobs = plot_lecture_breaks(worst_feat, disc_worst), ncol = 2)
+```
+
+### Tabele kontyngencji
+
+Najlepszym sposobem weryfikacji skuteczności dyskretyzacji jest analiza tablic kontyngencji z wykorzystaniem rzeczywistych etykiet klas (zmienna `Species`). Im "czystszy" jest dany przedział (zdominowany przez jeden gatunek), tym metoda dyskretyzacji okazała się skuteczniejsza.
+
+```{r heatmapy_najlepsza, fig.height=5.5, out.width="95%", echo=FALSE, fig.cap="Tabele krzyżowe (heatmapy) dla najlepszej cechy (Petal.Length). Ciemniejszy kolor oznacza większą liczebność w danym polu."}
+plot_heatmap <- function(disc_vec, feat, method_name) {
+  tbl <- as.data.frame(table(Przedzial = factor(disc_vec), Gatunek = iris$Species))
+  ggplot(tbl, aes(x = Gatunek, y = Przedzial, fill = Freq)) +
+    geom_tile(colour = "white", linewidth = 0.6) +
+    geom_text(aes(label = Freq), size = 5, fontface = "bold", 
+              colour = ifelse(tbl$Freq > 20, "white", "grey20")) +
+    scale_fill_gradient(low = "#D1C4E9", high = "#4A148C") +
+    labs(subtitle = method_name, x = NULL, y = "Przedział dyskretyzacji", fill = "Ilość") +
+    theme(axis.text.x = element_text(angle = 20, hjust = 1), legend.position = "none")
+}
+
+hm_best <- lapply(methods, function(m) plot_heatmap(disc_best[[m]], best_feat, methods_lab[m]))
+hm_worst <- lapply(methods, function(m) plot_heatmap(disc_worst[[m]], worst_feat, methods_lab[m]))
+grid.arrange(grobs = hm_best, ncol = 2)
+```
+
+```{r heatmapy_najgorsza, fig.height=5.5, out.width="95%", echo=FALSE, fig.cap="Tabele krzyżowe (heatmapy) dla najgorszej cechy (Sepal.Width)."}
+grid.arrange(grobs = hm_worst, ncol = 2)
+```
+
+### Ocena skuteczności metod dyskretyzacji
+
+Aby obiektywnie ocenić skuteczność przeprowadzonych podziałów, wykorzystano funkcję `matchClasses(..., method="exact")` z pakietu `e1071`. Pozwala ona na optymalne dopasowanie sztucznie utworzonych przedziałów do rzeczywistych etykiet klas (minimalizując błąd przypisania). 
+
+Na tej podstawie dla każdej metody obliczono wskaźnik dokładności, czyli procent obserwacji, które po optymalnym dopasowaniu przedziałów do klas zostały sklasyfikowane poprawnie.
+
+```{r porownanie_tabela, results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+library(knitr)
+
+#funkcja obliczająca dokładność bez pakietu e1071
+oblicz_accuracy <- function(disc_vec, true_labels) {
+  #braki danych
+  valid <- !is.na(disc_vec)
+  d_vec <- disc_vec[valid]
+  t_lab <- true_labels[valid]
+  
+  # tablea krzyżowa
+  m <- as.matrix(table(d_vec, t_lab))
+  
+  #permutacja K=3
+  perms <- list(c(1,2,3), c(1,3,2), c(2,1,3), c(2,3,1), c(3,1,2), c(3,2,1))
+  
+  max_poprawne <- 0
+  for (p in perms) {
+    suma_trafien <- 0
+    for (i in 1:nrow(m)) {
+      if (p[i] <= ncol(m)) {
+        suma_trafien <- suma_trafien + m[i, p[i]]
+      }
+    }
+    if (suma_trafien > max_poprawne) {
+      max_poprawne <- suma_trafien
+    }
+  }
+  return(round((max_poprawne / length(t_lab)) * 100, 1))
+}
+
+acc_best <- sapply(methods, function(m) oblicz_accuracy(disc_best[[m]], iris$Species))
+acc_worst <- sapply(methods, function(m) oblicz_accuracy(disc_worst[[m]], iris$Species))
+
+tabela_wynikow <- data.frame(
+  `Metoda dyskretyzacji` = methods_lab,
+  `Najlepsza cecha (Petal.Length) [%]` = acc_best,
+  `Najgorsza cecha (Sepal.Width) [%]` = acc_worst,
+  check.names = FALSE
+)
+
+kable(tabela_wynikow, 
+      caption = "Dokładność metod dyskretyzacji", 
+      align = "lcc", row.names = FALSE)
+```
+
+### Podsumowanie i ocena skuteczności algorytmów
+
+1. **Który algorytm dyskretyzacji okazał się najbardziej skuteczny?**
+   Dla tego zestawu danych najbardziej skuteczne okazały się algorytmy **K-means clustering** oraz **Equal Frequency**. 
+   * **K-means** naturalnie identyfikuje skupiska punktów (klastry), co w przypadku irysów pokrywa się niemal idealnie z rzeczywistym podziałem na gatunki (szczególnie dobrze wydziela gatunek *setosa* oraz znajduje optymalną granicę między *versicolor* i *virginica*), osiągając celność na poziomie ponad 90%. 
+   * **Equal Width** (równa szerokość) sprawdził się najgorzej. Ponieważ dzieli on zakres wartości geometrycznie na równe odcinki, jest bardzo podatny na obserwacje odstające i nieregularne rozkłady danych (co skutkuje tworzeniem przedziałów z bardzo małą liczbą obserwacji, na korzyść przedziałów nadmiernie zatłoczonych, w których "mieszają" się gatunki).
+
+2. **Czy wyniki otrzymane dla „najlepszej” cechy różnią się istotnie od wyników dla „najgorszej” cechy?**
+   **Tak, różnią się drastycznie.** 
+   * W przypadku **najlepszej cechy** (`Petal.Length`), zastosowanie skutecznych algorytmów dyskretyzacji (jak K-means) doprowadziło do stworzenia przedziałów charakteryzujących się bardzo wysoką „czystością” (celność pow. 90%). Każdy przedział był zdominowany niemal całkowicie przez jeden konkretny gatunek irysa.
+   * W przypadku **najgorszej cechy** (`Sepal.Width`), rozkłady gatunków tak bardzo się na siebie nakładają, że żaden algorytm nienadzorowany nie był w stanie wydzielić sensownych grup. W rezultacie otrzymano przedziały silnie wymieszane pod względem gatunkowym, a dokładność dopasowania spada tam do poziomu zbliżonego do zgadywania.
+  
+# Zadanie 3 
+## Opis danych
+
+W poniższej analizie wykorzystano zbiór danych `titanic_train`, udostępniany poprzez pakiet `titanic` w środowisku R. Zbiór ten zawiera wybrane charakterystyki opisujące pasażerów historycznego rejsu statku Titanic. 
+
+Wśród zebranych informacji znajdują się m.in. takie zmienne jak wiek (`Age`), płeć (`Sex`), opłata za bilet (`Fare`), miejsce zaokrętowania (`Embarked`) czy klasa pasażerska (`Pclass`). Zbiór zawiera również kluczową informację o tym, czy dana osoba przeżyła katastrofę (zmienna `Survived`), która w dalszej analizie posłuży nam do weryfikacji struktury grup. 
+
+Poniżej przedstawiono ogólny zarys struktury zbioru (typy zmiennych) oraz podstawowe statystyki opisowe dla poszczególnych cech:
+
+```{r dane_summary_2}
+if (!require(titanic)) install.packages("titanic")
+library(titanic)
+
+data("titanic_train", package = "titanic")
+
+str(titanic_train)
+
+summary(titanic_train)
+```
+
+## Przygotowanie danych
+
+1.  **Konwersja typów zmiennych**: Upewniono się, że zmienne jakościowe są traktowane jako czynniki (`factor`), a zmienna `Pclass` (klasa pasażerska) jako zmienna porządkowa (`ordered factor`). Jest to niezbędne, aby funkcja obliczająca odmienność (metryka Gowera) mogła poprawnie zinterpretować charakter danych.
+2.  **Usunięcie identyfikatorów**: Usunięto kolumny `PassengerId`, `Name`, `Ticket` oraz `Cabin`. Pełnią one rolę unikalnych identyfikatorów, które nie wnoszą informacji o podobieństwie pasażerów w kontekście statystycznym, a mogłyby zniekształcić wynik redukcji wymiaru.
+3.  **Obsługa braków danych (NA)**: Zidentyfikowano braki w zmiennych `Age` oraz `Embarked`. Zastosowano metodę usuwania niekompletnych rekordów (`na.omit`), aby uzyskać pełną macierz odmienności wymaganą przez algorytm MDS.
+4.  **Usunięcie duplikatów**: Usunięto obserwacje o identycznych profilach cech. Jest to niezbędny krok techniczny dla algorytmu `isoMDS`, który nie akceptuje zerowych odległości między różnymi obiektami.
+5.  **Zmienna grupująca**: Zmienna `Survived` została wyłączona z procesu obliczania odległości – zgodnie z założeniem MDS jako metody nienadzorowanej, będzie ona wykorzystana jedynie na etapie wizualizacji i interpretacji wyników.
+
+```{r przygotowanie_danych, echo = TRUE}
+library(dplyr)
+
+# 1. Konwersja typów
+titanic_train$Survived <- as.factor(titanic_train$Survived)
+titanic_train$Pclass   <- as.ordered(titanic_train$Pclass) 
+titanic_train$Sex      <- as.factor(titanic_train$Sex)
+titanic_train$Embarked[titanic_train$Embarked == ""] <- NA 
+titanic_train$Embarked <- as.factor(titanic_train$Embarked)
+
+# 2. Usunięcie identyfikatorów
+df_prepped <- titanic_train %>% 
+  dplyr::select(-PassengerId, -Name, -Ticket, -Cabin)
+
+# 3. Obsługa braków danych
+df_clean <- na.omit(df_prepped)
+
+# 4. Usunięcie duplikatów
+# Sprawdzamy duplikaty na bazie cech (bez zmiennej Survived)
+df_no_survived <- df_clean %>% dplyr::select(-Survived)
+df_final <- df_clean[!duplicated(df_no_survived), ]
+
+cat("Liczba pasażerów po przygotowaniu danych:", nrow(df_final))
+```
+## Redukcja wymiaru na bazie MDS i ocena jakości
+
+Po odpowiednim przygotowaniu danych przystąpiono do redukcji wymiaru. Ze względu na to, że zbiór zawiera zarówno cechy ilościowe (wiek, opłata), porządkowe (klasa), jak i nominalne (płeć, port), do obliczenia macierzy odmienności zastosowano **metrykę Gowera** (funkcja `daisy()`). Zmienna `Survived` została na tym etapie wykluczona.
+
+Następnie zastosowano algorytm skalowania niemetrycznego (Kruskala) za pomocą funkcji `isoMDS()`, redukując przestrzeń do $d = 2$ wymiarów.
+
+Aby ocenić jakość otrzymanego odwzorowania, sporządzono **diagram Sheparda**, który zestawia oryginalne odległości (Gowera) z odległościami euklidesowymi w nowej, dwuwymiarowej przestrzeni MDS.
+
+```{r mds_shepard, fig.height=5.5, out.width="95%", echo=FALSE,}
+library(cluster)
+library(MASS)
+df_features <- df_final %>% dplyr::select(-Survived)
+
+dist_matrix <- daisy(df_features, metric = "gower")
+
+set.seed(42) 
+mds_model <- isoMDS(dist_matrix, k = 2, trace = FALSE)
+mds_coords <- mds_model$points
+dist_mds <- dist(mds_coords)
+
+par(mfrow = c(1, 1), mar = c(5, 5, 4, 2))
+plot(as.numeric(dist_matrix), as.numeric(dist_mds), 
+     xlab = "Oryginalne odległości (Gower)", 
+     ylab = "Odległości po mapowaniu MDS",
+     main = "Diagram Sheparda",
+     pch = 20, col = rgb(0, 0, 0, 0.4), cex = 0.6)
+abline(0, 1, col = "red", lty = 2, lwd = 2)
+```
+
+### Wnioski z diagramu Sheparda
+
+Diagram Sheparda pozwala ocenić, na ile wiernie nowa, dwuwymiarowa przestrzeń oddaje rzeczywiste relacje między obiektami:
+
+* Punkty na wykresie układają się wzdłuż rosnącego trendu (zbliżonego do czerwonej linii $y = x$), co oznacza, że monotoniczność odległości została w dużym stopniu zachowana.
+* Obiekty, które były do siebie podobne w oryginalnej, wielowymiarowej przestrzeni (mała odległość Gowera na osi X), znajdują się blisko siebie również na mapie MDS (mała odległość na osi Y).
+
+## Wizualizacja danych i interpretacja wyników MDS
+
+Po zredukowaniu wielowymiarowej przestrzeni cech (takich jak wiek, płeć, opłata za bilet, klasa pasażerska) do dwóch wymiarów (MDS 1 i MDS 2) przy użyciu odległości Gowera i skalowania Kruskala, możemy poddać analizie wizualnej strukturę zbioru. 
+
+Poniższe wykresy rozrzutu prezentują wygenerowaną przestrzeń dwuwymiarową. Poszczególne punkty (pasażerowie) zostały pokolorowane ze względu na status przeżycia (`Survived`), płeć (`Sex`) oraz klasę (`Pclass`).
+
+```{r mds_survived, fig.height=5.5, out.width="95%", echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Wyniki MDS z podziałem na status przeżycia."}
+library(titanic)
+library(cluster)
+library(MASS)
+library(ggplot2)
+library(dplyr)
+
+data("titanic_train", package = "titanic")
+df <- titanic_train
+
+df$Survived <- as.factor(df$Survived)
+df$Pclass   <- as.ordered(df$Pclass) 
+df$Sex      <- as.factor(df$Sex)
+df$Embarked[df$Embarked == ""] <- NA 
+df$Embarked <- as.factor(df$Embarked)
+
+df <- df %>% dplyr::select(-PassengerId, -Name, -Ticket, -Cabin)
+df_clean <- na.omit(df)
+
+df_features_temp <- df_clean %>% dplyr::select(-Survived)
+is_duplicate <- duplicated(df_features_temp)
+df_clean <- df_clean[!is_duplicate, ]
+
+df_features <- df_clean %>% dplyr::select(-Survived)
+dist_matrix <- daisy(df_features, metric = "gower")
+
+set.seed(73) 
+mds_model <- isoMDS(dist_matrix, k = 2, trace = FALSE)
+mds_coords <- mds_model$points
+
+df_plot <- data.frame(
+  MDS1 = mds_coords[, 1],
+  MDS2 = mds_coords[, 2],
+  Survived = df_clean$Survived,
+  Sex      = df_clean$Sex,
+  Pclass   = df_clean$Pclass
+)
+
+# Wykres 1: Przeżycie
+ggplot(df_plot, aes(x = MDS1, y = MDS2, color = Survived)) +
+  geom_point(alpha = 0.75, size = 2.5) +
+  scale_color_manual(values = c("0" = "#E41A1C", "1" = "#4DAF4A"), 
+                     labels = c("Nie przeżył (0)", "Przeżył (1)")) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", plot.subtitle = element_text(face = "bold")) +
+  labs(subtitle = "Podział wg statusu przeżycia (Survived)",
+       x = "Wymiar 1 (MDS)", y = "Wymiar 2 (MDS)", color = "Status:")
+```
+
+```{r mds_sex, fig.height=5.5, out.width="95%", echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Wyniki MDS z podziałem na płeć."}
+# Wykres 2: Płeć
+ggplot(df_plot, aes(x = MDS1, y = MDS2, color = Sex)) +
+  geom_point(alpha = 0.75, size = 2.5) +
+  scale_color_manual(values = c("male" = "#377EB8", "female" = "#984EA3"),
+                     labels = c("Mężczyzna", "Kobieta")) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", plot.subtitle = element_text(face = "bold")) +
+  labs(subtitle = "Podział wg płci (Sex)",
+       x = "Wymiar 1 (MDS)", y = "Wymiar 2 (MDS)", color = "Płeć:")
+```
+
+```{r mds_class, fig.height=5.5, out.width="95%", echo=FALSE, warning=FALSE, message=FALSE, fig.cap="Wyniki MDS z podziałem na klasę pasażerską."}
+# Wykres 3: Klasa
+ggplot(df_plot, aes(x = MDS1, y = MDS2, color = Pclass)) +
+  geom_point(alpha = 0.75, size = 2.5) +
+  scale_color_manual(values = c("1" = "#FF7F00", "2" = "#4DAF4A", "3" = "#377EB8"),
+                     labels = c("1. Klasa", "2. Klasa", "3. Klasa")) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom", plot.subtitle = element_text(face = "bold")) +
+  labs(subtitle = "Podział wg klasy pasażerskiej (Pclass)",
+       x = "Wymiar 1 (MDS)", y = "Wymiar 2 (MDS)", color = "Klasa:")
+```
+### Interpretacja wyników i odpowiedzi na pytania
+
+1. **Podział na grupy (skupiska)**
+   Na wykresach wyraźnie widać podział obiektów na oddzielne chmury punktów. Wynika to z faktu zastosowania odległości Gowera na danych zawierających zmienne kategoryczne (nominalne i porządkowe). Różne kombinacje tych cech tworzą odizolowane w przestrzeni dwuwymiarowej.
+
+2. **Zgodność z informacją o przeżyciu (`Survived`)**
+   Podział na skupiska wykazuje widoczny związek z przeżywalnością. Analizując pierwszy wykres, możemy zauważyć obszary (chmury punktów) silnie zdominowane przez osoby, które przeżyły (zielone punkty), oraz obszary, w których zdecydowaną większość stanowią ofiary (czerwone punkty). Jednak w niektórych klastrach występuje wyraźne wymieszanie obu klas.
+
+3. **Obecność obserwacji odstających**
+   Tak, na wykresach widoczne są pojedyncze punkty lub bardzo małe grupy punktów, które są wyraźnie odseparowane i oddalone od głównych zagęszczeń pasażerów. Mogą one reprezentować pasażerów o bardzo nietypowych charakterystykach względem reszty populacji na statku.
+
+4. **Powiązanie grup ze zmiennymi `Sex` oraz `Pclass`**
+   * **Płeć (`Sex`):** Zmienna ta wydaje się być głównym czynnikiem różnicującym. Drugi wykres pokazuje niemal perfekcyjny podział – jedna strona przestrzeni MDS jest zdominowana przez mężczyzn, a druga przez kobiety.
+   * **Klasa (`Pclass`):** Trzeci wykres ukazuje, w jaki sposób klasa pasażerska dzieli główne chmury punktów na mniejsze subklastry (w obrębie grup płciowych). Widać wyraźne przejścia między klasą 1, 2 i 3.
