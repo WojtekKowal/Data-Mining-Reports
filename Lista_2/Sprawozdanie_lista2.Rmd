@@ -3,6 +3,7 @@ title: "Sprawozdanie lista 2"
 author: "Piotr Kaptur, Wojciech Kowal"
 date: "`r Sys.Date()`"
 lang: pl
+fontsize: 12pt
 output:
   pdf_document:
     toc: true
@@ -37,7 +38,7 @@ PALETTE <- c("setosa" = "#4A148C", "versicolor" = "#2196F3", "virginica" = "#D81
 PALETTE_IRIS <- c("setosa" = "#4A148C", "versicolor" = "#2196F3", "virginica" = "#D81B60")
 ```
 
-# Zadanie 1
+# Zadanie 1 - Dyskretyzacja cech ciągłych
 ## Opis danych 
 
 W poniższej analizie wykorzystano zbiór danych `iris` (dostępny w podstawowym pakiecie `datasets` środowiska R). Zbiór ten zawiera wyniki pomiarów uzyskanych dla trzech gatunków irysów: *setosa*, *versicolor* i *virginica*. Został on udostępniony przez Ronalda Fishera w 1936 roku.
@@ -278,7 +279,315 @@ kable(tabela_wynikow,
    * W przypadku **najlepszej cechy** (`Petal.Length`), zastosowanie skutecznych algorytmów dyskretyzacji (jak K-means) doprowadziło do stworzenia przedziałów charakteryzujących się bardzo wysoką „czystością” (celność pow. 90%). Każdy przedział był zdominowany niemal całkowicie przez jeden konkretny gatunek irysa.
    * W przypadku **najgorszej cechy** (`Sepal.Width`), rozkłady gatunków tak bardzo się na siebie nakładają, że żaden algorytm nienadzorowany nie był w stanie wydzielić sensownych grup. W rezultacie otrzymano przedziały silnie wymieszane pod względem gatunkowym, a dokładność dopasowania spada tam do poziomu zbliżonego do zgadywania.
   
-# Zadanie 3 
+# Zadanie 2 - Analiza składowych głównych (PCA)
+
+
+```{r wczytanie_danych, echo=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(corrplot)
+library(knitr)
+cql <- read.csv(file="uaScoresDataFrame.csv", stringsAsFactors = TRUE)
+cql_num <- Filter(is.numeric, cql)
+cql_num[1] <- NULL
+```
+## Opis Danych
+Do analizy wykorzystano dane na temat jakości życia w miastach pochodzące z platformy Kaggle [City Quality of Life Dataset](https://www.kaggle.com/datasets/orhankaramancode/city-quality-of-life-dataset). Posiada on 17 zmiennych ilościowych opisujących 266 miast.
+
+
+```{r tabelka}
+
+var_names <- colnames(cql_num)
+kable(data.frame("Analizowane zmienne" = var_names), 
+      caption = "Zestawienie zmiennych ilościowych wykorzystanych w PCA",
+      align = "l")
+```
+
+
+## Porównanie wariancji zmiennych ilościowych
+W tym celu posłużymy się wykresami pudełkowymi, które zostały posortowane względem mediany w celu lepszej czytelności.
+
+```{r wyk_pudelkowe, fig.height=5.5, out.width="95%", fig.cap= "Wykresy pudełkowe zmiennych ilościowych"}
+cql_num_long <- cql_num %>% pivot_longer(cols = everything(), names_to = "cecha", values_to = "wartosc")
+ggplot(cql_num_long, aes(x = reorder(cecha, wartosc, FUN = median),y= wartosc, fill = cecha)) +
+  geom_boxplot(
+    color = "black",
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(
+    x = NULL,
+    y = NULL
+  )
+```
+
+Na wykresie widać, że wariancja jest zróżnicowana, na przykład zmienna Commute ma ją dość niską, a Venture.Capital zdecydowanie większą. W celu ujednolicenia wariancji, podczas stosowania metody PCA zostanie zastosowana standaryzacja.
+
+## PCA
+Metoda PCA polega na tworzeniu nowych zmiennych (składowych) na podstawie oryginalnych cech, wykorzystując korelacje między nimi. Celem metody jest opisanie jak największej części zmienności danych za pomocą jak najmniejszej liczby składowych, co pozwala na skuteczną redukcję wymiaru przy bardzo niskiej stracie informacji. Wektory składowe są względem siebie ortogonalne.
+Wykres poniżej pokazuje, że każda kolejna składowa ma coraz mniejszą wariancję.
+```{r pca, fig.height=5.5, out.width="95%", fig.cap= "Wykresy pudełkowe składowych głównych"}
+
+pca_result <- prcomp(cql_num,scale. = TRUE)
+pca_df_long <- as.data.frame(pca_result$x) %>% pivot_longer(cols = everything(), names_to = "skladowa", values_to = "Wartosc")
+pca_df_long$skladowa <- factor(pca_df_long$skladowa, levels = colnames(pca_result$x))
+ggplot(pca_df_long, aes(x= skladowa, y=Wartosc, fill = skladowa))+
+  geom_boxplot(
+    color = "black",
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  ) +
+  labs(
+    x = NULL,
+    y = NULL
+  )
+```
+Poniższa tabela opisuje z jakich 5 najważniejszych zmiennych wyjściowych powstały 3 pierwsze składowe główne.
+
+```{r tabela3pc}
+ladunki <- abs(pca_result$rotation[, c("PC1", "PC2", "PC3")])
+kable(as.data.frame(ladunki), 
+      digits = 3, 
+      caption = "Wartości bezwzględne ładunków dla poszczególnych składowych głównych")
+```
+
+Jeśliby spróbować zinterpretować te wyniki to pierwsza składowa opiera się na silnych fundamentach miasta - edukacja (0.403), mieszkalnictwo (0.308), jakość środowiska (0.326) i swoboda działalności gospodarczej (0.377). W drugiej kluczowa jest nowoczesność i innowacyjność - Startupy (0.483), kapitał wysokiego ryzyka (0.427), ale też kultura wypoczynku (0.365) i tolerancja (0.355). W trzeciej podstawy codziennego życia - dojazdy (0.506), koszty życia (0.331), bezpieczeństwo (0.333) i skomunikowanie z światem (0.340). W każdej z 3 jest umiarkowanie ważna opieka zdrowotna.
+
+Na wykresie osypiskowym widać, że metoda działa, ponieważ każda kolejna składowa ma coraz mniejszy wpływ na zmienność, a pierwsze kilka pozwala wyjaśnić większość zmienności.
+```{r wykres osypiskowy, fig.height=5.5, out.width="95%", fig.cap= "Wykres osypiskowy składowych głównych" }
+variance <- pca_result$sdev^2
+variance_perc <- variance/sum(variance)
+accumulate_var <- cumsum(variance_perc)
+df_var <- data.frame(PC =1:length(variance), percentage =variance_perc, accumulated = accumulate_var)
+
+ggplot(df_var, aes(x = PC, y= percentage))+
+  geom_col(
+    fill ="steelblue",
+    color ="black"
+  ) +
+  theme_minimal()+
+  scale_x_continuous(
+    breaks = 1:17,
+    expand = c(0, 0)
+    ) +
+  labs(
+    title = "Wykres osypiskowy składowych głównych",
+    x = "Numer składowej głównej",
+    y = "Ułamek wariancji wyjaśniany przez składowe"
+  ) +
+  theme(
+    panel.grid.major.x = element_blank()
+  ) +
+  geom_text(
+    aes(label = round(percentage, 3)),
+    vjust = -0.5,
+    size = 3
+  )
+```
+
+Według poniższego wykresu widzimy, że do opisania 80% wariancji wystarczy 7 pierwszych składowych, a do 90% jedynie 10. Pozwala to na znaczną redukcję wymiaru bez znacznej utraty informacji.
+```{r wykres skumulowany, fig.height=5.5, out.width="95%", fig.cap= "Wykres skumulowanej wariancji" }
+ggplot(df_var, aes(x=PC, y =accumulated)) +
+  geom_col(color = "black",
+           fill = "steelblue"
+    )+
+  geom_hline(yintercept=0.8,linetype = "dashed", color="chartreuse", linewidth = 1) +
+  geom_hline(yintercept=0.9,linetype = "dashed", color="tomato2", linewidth = 1) +
+  theme_minimal() +
+  scale_x_continuous(
+    breaks = 1:17,
+    expand = c(0, 0)
+    ) +
+  labs(
+    title = "Wykres skumulowanej wariancji",
+    x = "Numer składowej głównej",
+    y = "Ułamek wyjaśnionej wariancji"
+  ) +
+  theme(
+    panel.grid.major.x = element_blank()
+  ) +
+  annotate("text", x = 1, y = 0.82, label = "80%", color = "chartreuse") +
+  annotate("text", x = 1, y = 0.92, label = "90%", color = "tomato2")
+```
+
+## Wizualizacja dwóch pierwszych składowych
+Po przeprowadzeniu analizy danych składowych dokonano wizualizacji miast na przestrzeni tych składowych, pogrupowano je względem kontynentu, na którym się znajdują.
+```{r pc1pc2, fig.height=5.5, out.width="95%", fig.cap= "Wykres opisujący rozrzut miast według składowej pierwszej i drugiej"}
+pc1pc2 <- as.data.frame(pca_result$x[,1:2])
+pc1pc2$city <- cql$UA_Name
+pc1pc2$continent <- cql$UA_Continent
+
+ggplot()+
+  geom_point(
+    data=pc1pc2,
+    aes(x = PC1, y = PC2, color = continent),
+    size = 3,
+    alpha = 0.8) +
+  geom_text_repel(
+    data = pc1pc2,
+    aes(x = PC1, y = PC2, label = city),
+    size = 2.5,
+    color = "black",
+    box.padding = 0.5,
+    max.overlaps = Inf
+  ) +
+  theme_minimal()+
+  labs(
+    title = "Miasta w przestrzeni Składowych Głównych",
+    x = "Składowa Główna 1",
+    y = "Składowa Główna 2",
+    color = "Kontynent"
+  )
+```
+Widać, że miasta europejskie grupują się w okolicach lewej górnej części wykresu, północnoamerykańskie lewej dolnej, a z reszty kontynentów ciężko jest znaleźć jakiś obszar grupowania.
+
+### Dwuwykres
+
+Na dwuwykresie umieszczono wektory zmiennych, z których składają się dwie pierwsze składowe. W celu zachowania czytelności, podpisano jedynie miasta najbardziej odstające.
+```{r biplot, fig.height=5.5, out.width="95%", fig.cap= "dwuwykres"}
+biplot_df <- as.data.frame(pca_result$rotation[,1:2])
+biplot_df$cecha <- rownames(biplot_df)
+
+ggplot() +
+  geom_point(
+    data = pc1pc2,
+    aes(x = PC1, y = PC2, color = continent),
+    size = 2.5,
+    alpha = 0.8
+  ) +
+  geom_text_repel(
+    data = subset(pc1pc2, abs(PC1) > 3.8 | abs(PC2) > 2.3),
+    aes(x = PC1, y = PC2, label = city),
+    size = 2,
+    color = "black",
+    box.padding = 0.5,
+    max.overlaps = Inf
+  ) +
+  geom_segment(
+    data = biplot_df,
+    aes(x = 0, y = 0, xend = PC1*6, yend = PC2*6),
+    arrow = arrow(length = unit(0.2, "cm")),
+    color = "black", 
+    linewidth = 0.8
+  ) +
+  geom_text_repel(
+    data = biplot_df,
+    aes(x = PC1*6, y = PC2*6, label = cecha),
+    color = "black",
+    fontface = "bold",
+    size = 4.5
+  ) +
+theme_minimal() +
+  labs(
+    title = "Miasta i Wskaźniki w przestrzeni Składowych Głównych (Biplot)",
+    x = "Składowa Główna 1",
+    y = "Składowa Główna 2",
+    color = "Kontynent"
+  )
+```
+Oś pionowa (PC2) wyraźnie rozdziela dwa modele sukcesu: model europejski (np. Zurych, Berno), zorientowany na bezpieczeństwo, ekologię czy tolerancję, oraz model amerykański (np. San Francisco, Nowy Jork), zdominowany przez  startupy i kapitał wysokiego ryzyka.
+Widzimy również, że wektor Mieszkalnictwa jest skierowany niemal odwrotnie do wektorów Ekonomii i Edukacjii Oznacza to, że miasta będące liderami jakości życia i biznesu, skupione po lewej stronie wykresu charakteryzują się jednocześnie najniższymi wynikami w kategorii dostępności mieszkań.
+
+### Macierz korelacji zmiennych
+
+```{r corrmatrix, fig.height=5.5, out.width="95%", fig.cap= "macierz korelacji zmiennych ilościowych"}
+correlation_matrix <- cor(cql_num)
+corrplot(correlation_matrix,
+         method = "color",
+         type = "lower", 
+         addCoef.col = "black",
+         tl.cex = 0.9,
+         number.cex = 0.5,
+         tl.col = "black")
+```
+Zestawiając dwuwykres z macierzą korelacji, można zauważyć wyraźną zależność: wektory cech dodatnio skorelowanych są skierowane w podobnym kierunku, skorelowanych ujemnie – w przeciwnym, natomiast wektory zmiennych o niskiej korelacji są względem siebie ortogonalne.
+
+## PCA nieustandaryzowane
+```{r pca bez stand}
+pca_result_ns <- prcomp(cql_num,scale. = FALSE)
+```
+
+```{r wykres_osypiskowy_ns, fig.height=5.5, out.width="95%", fig.cap= "Wykres osypiskowy składowych głównych nieustandaryzowanych" }
+variance_ns <- pca_result_ns$sdev^2
+variance_perc_ns <- variance_ns / sum(variance_ns)
+accumulate_var_ns <- cumsum(variance_perc_ns)
+
+df_var_ns <- data.frame(
+  PC = 1:length(variance_ns), 
+  percentage = variance_perc_ns, 
+  accumulated = accumulate_var_ns
+)
+
+ggplot(df_var_ns, aes(x = PC, y = percentage)) +
+  geom_col(
+    fill = "steelblue",
+    color = "black"
+  ) +
+  theme_minimal() +
+  scale_x_continuous(
+    breaks = 1:length(variance_ns),
+    expand = c(0, 0)
+  ) +
+  labs(
+    title = "Wykres osypiskowy składowych głównych (dane nieustandaryzowane)",
+    x = "Numer składowej głównej",
+    y = "Ułamek wariancji wyjaśniany przez składowe"
+  ) +
+  theme(
+    panel.grid.major.x = element_blank()
+  ) +
+  geom_text(
+    aes(label = round(percentage, 3)),
+    vjust = -0.5,
+    size = 3
+  )
+```
+
+```{r wykres_skumulowany_ns, fig.height=5.5, out.width="95%", fig.cap= "Wykres skumulowanej wariancji składowych głównych nieustandaryzowanych" }
+ggplot(df_var_ns, aes(x = PC, y = accumulated)) +
+  geom_col(color = "black",
+           fill = "steelblue"
+    ) +
+  geom_hline(yintercept = 0.8, linetype = "dashed", color = "chartreuse", linewidth = 1) +
+  geom_hline(yintercept = 0.9, linetype = "dashed", color = "tomato2", linewidth = 1) +
+  theme_minimal() +
+  scale_x_continuous(
+    breaks = 1:nrow(df_var_ns),
+    expand = c(0, 0)
+    ) +
+  labs(
+    title = "Wykres skumulowanej wariancji (dane nieustandaryzowane)",
+    x = "Numer składowej głównej",
+    y = "Ułamek wyjaśnionej wariancji"
+  ) +
+  theme(
+    panel.grid.major.x = element_blank()
+  ) +
+  annotate("text", x = 1, y = 0.82, label = "80%", color = "chartreuse") +
+  annotate("text", x = 1, y = 0.92, label = "90%", color = "tomato2")
+```
+
+Z przeprowadzonej analizy wynika, że standaryzacja danych nie zmieniła wyników drastycznie. Jednakże wyższy ułamek wariancji dla danych surowych (33,7% vs 29,8% dla PC1) potwierdził, że bez standaryzacji zmienne o większych wartościach bezwzględnych dominowałyby w modelu, dając fałszywy obraz ich rzeczywistego znaczenia.
+
+## Podsumowanie
+
+1. **Efektywna redukcja wymiarów:**
+Przy chęci zachowania 80% wariancji, wystarczy ograniczyć się do 7 pierwszych składowych głównych. Jest to znacząca redukcja względem początkowych 17 zmiennych, co pozwala na przykłąd na wydajniejsze stosowanie modeli predykcyjnych w dalszych etapach pracy.
+2. **Optymalizacja obliczeń:** 
+Redukcja wielowymiarowości przekłada się na skrócenie czasu obliczeń oraz mniejsze obciążenie zasobów przy zachowaniu większości istotnych informacji.
+3. **Lepsza interpretowalność:**
+Dzięki PCA wielowymiarowe relacje między 17 cechami stały się czytelne, co najlepiej pokazał dwuwykres, pokazujący grupy miast i zależności między ich cechami. W szczególności warto wspomnieć o tym, że sukces ekonomiczny oraz edukacyjny negatywnie wpływa na dostępność mieszkań.
+
+# Zadanie 3 - Skalowanie wielowymiarowe (MDS)
+
 ## Opis danych
 
 W poniższej analizie wykorzystano zbiór danych `titanic_train`, udostępniany poprzez pakiet `titanic` w środowisku R. Zbiór ten zawiera wybrane charakterystyki opisujące pasażerów historycznego rejsu statku Titanic. 
