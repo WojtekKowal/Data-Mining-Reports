@@ -1,0 +1,238 @@
+---
+title: "Sprawozdanie lista 4"
+author: "Piotr Kaptur, Wojciech Kowal"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+    extra_dependencies: ["float"]
+lang: pl-PL
+---
+
+```{r setup, include=FALSE}
+#dev = "cairo_pdf" -polskie nzaki
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, dev = "cairo_pdf",fig.align = "center",fig.pos = "H",out.width = "100%")
+```
+
+# Zaawansowane metody klasyfikacji
+
+```{r setup_libraries_anddatafromlist3, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(HDclassif)
+library(caret)
+library(e1071)
+library(ipred)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(adabag)
+data(wine)
+wine$class <-as.factor(wine$class)
+colnames(wine)<- c("class","Alcohol","Malic.acid","Ash","Alcalinity.of.Ash","Magnesium","Total.phenols","Flavonoids","Nonflavonoid.phenols","Proanthocyanins","Color.intensity","Hue","oDtwoeighto.oDthreeonefive.of.diluted.wines","Proline")
+set.seed(7342)
+data <- createDataPartition(wine[,1],times =1,p = 0.75, list = FALSE)
+wine_train <- wine[data,]
+wine_test <- wine[-data,]
+skaler <- preProcess(wine_train[, 2:14], method = c("center", "scale"))
+#skalujemy za pomocą tych samych wag nauczonych na zbiorze treningowym
+wine_train_standardized <- predict(skaler, wine_train[, 2:14])
+wine_test_standardized  <- predict(skaler, wine_test[, 2:14])
+wine_train_standardized_full <-data.frame(class = wine_train$class, wine_train_standardized)
+wine_test_standardized_full <- data.frame(class = wine_test$class, wine_test_standardized)
+labelsreal <- wine_test$class
+labelsrealtrain <- wine_train$class
+```
+Celem analizy jest zastoswanie wybranych zaawansowanych metod klasyfikacji, na zbiorze wine, który był omówiony w sprawozdaniu 3, więc nie będziemy powtarzać informacji na jego temat.
+
+## Rodziny klasyfikatorów
+
+Przeanalizujemy 3 algorytmu typu ensemble learning - boosting, bagging i random forest. Porównamy je z zwykłym drzewem decyzyjnym. Dla każdego z nich korzystamy z 4-krotnej walidacji krzyżowej, w celu zmniejszenia wpływu podziału na wyniki. Dla algorytmu boosting korzystamy z walidacji krzyżowej z pakietu adabag, gdzie jest też sam boosting, dla pozostały korzystamy z ipred. dla algorytmów bagging, boosting i random forest ilość drzew została ustalona jako 50.
+```{r trees, include=FALSE}
+tree.predict <- function(object, newdata) predict(object, newdata, type = "class")
+# zwykledrzewo
+wynik_cv_tree <- errorest(
+  class ~ ., 
+  data = wine,
+  model = rpart,
+  predict = tree.predict,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4)
+)
+dok_tree <- 1-(wynik_cv_tree$error)
+
+# bagging
+tree.predict <- function(object, newdata) predict(object, newdata, type = "class")
+
+wynik_cv_tree_bag <- errorest(
+  class ~ ., 
+  data = wine,
+  predict =tree.predict,
+  model = ipred::bagging,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4),
+  nbagg = 50
+)
+dok_tree_bag <- 1-(wynik_cv_tree_bag$error)
+
+#boosting
+wynik_cv_boost <- boosting.cv( #pakiet adabag bo ipred i adabag nie dzialaly razem
+  class ~ ., 
+  data = wine,
+  v = 4,
+  mfinal = 50
+)
+dok_tree_boost <- 1-(wynik_cv_boost$error)
+
+#randomforest
+wynik_cv_rf <- errorest(
+  class ~ ., 
+  data = wine,
+  model = randomForest,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4),
+  ntree = 50
+)
+dok_rf <- 1-(wynik_cv_rf$error)
+```
+
+| Metoda Klasyfikacji | Dokładność |
+|:---|:---:|
+| **Drzewo Klasyfikacyjne** | **`r round(dok_tree * 100, 2)`**% |
+| **Bagging** | **`r round(dok_tree_bag * 100, 2)`**% |
+| **Boosting ** | **`r round(dok_tree_boost * 100, 2)`**% |
+| **Lasy losowe ** | **`r round(dok_rf * 100, 2)`**% |
+```{r bayes, include=FALSE}
+model.nb <- naiveBayes(class ~ ., data = wine_train)
+
+labels_predicted_naive <- predict(model.nb, newdata = wine_test)
+m_b1 <- table(Rzeczywiste = labelsreal, Prognozy = labels_predicted_naive)
+dok_nb_test <- (sum(diag(m_b1)) / sum(m_b1))
+```
+Widzimy, że każda z metod poradziła sobie wyraźnie lepiej od zwyczanjego drzewa klasyfikacyjnego, Lasy losowe oraz Boosting osiągnęły taki sam najlepszy wynik, jednak Bagging nie odstaje znacząco od nich, wszystkie 3 z nich są zdecydowaną poprawą nad zwykłym drzewem decyzyjnym, Warto dodać, że najlepiej radzący sobie algorytm z listy 3 czyli naiwny klasyfikator bayesowski miał dokładność na poziomie **`r round(dok_nb_test *100, 2)`**%, co jest nadal trochę lepszym wynikiem od tych metod.
+
+## Metoda Wektorów Nośnych
+
+Metoda Wektorów Nośnych polega na wyznaczeniu hiperpłaszczyzny, która najlepiej rozdziela dane należące do różnych klas, maksymalizując margines między nimi. Funkcje jądra umożliwiają obliczanie podobieństw między obserwacjami w różny sposób, co pozwala na uzwględnienie nie tylko zależności liniowych ale też np. wielomianowych.
+
+### Różne funkcje jądra i koszty
+
+Przeanalizujemy Metodę wektorów nośnych(SVM), skorzystamy z 3 funkcji jądra - liniowej, wielomianowej i radialnej, z domyślnymi wartościami stopnia wielomianu oraz gammy, sprawdzimy również koszty: 0.1, 1 i 10. Poniższa tabela zestawia wyniki z tej klasyfikacji
+```{r svmp1, include= FALSE}
+#b) SVM
+#linear
+svm_linear_01 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "linear", cost = 0.1)
+pred_linear_01 <- predict(svm_linear_01, wine_test_standardized_full)
+conf_linear_01 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_linear_01)
+dok_linear_01 <- sum(diag(conf_linear_01)) / sum(conf_linear_01)
+
+svm_linear_1 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "linear", cost = 1)
+pred_linear_1 <- predict(svm_linear_1, wine_test_standardized_full)
+conf_linear_1 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_linear_1)
+dok_linear_1 <- sum(diag(conf_linear_1)) / sum(conf_linear_1)
+
+svm_linear_10 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "linear", cost = 10)
+pred_linear_10 <- predict(svm_linear_10, wine_test_standardized_full)
+conf_linear_10 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_linear_10)
+dok_linear_10 <- sum(diag(conf_linear_10)) / sum(conf_linear_10)
+
+# polynomial
+svm_poly_01 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "polynomial", cost = 0.1)
+pred_poly_01 <- predict(svm_poly_01, wine_test_standardized_full)
+conf_poly_01 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_poly_01)
+dok_poly_01 <- sum(diag(conf_poly_01)) / sum(conf_poly_01)
+
+svm_poly_1 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "polynomial", cost = 1)
+pred_poly_1 <- predict(svm_poly_1, wine_test_standardized_full)
+conf_poly_1 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_poly_1)
+dok_poly_1 <- sum(diag(conf_poly_1)) / sum(conf_poly_1)
+
+svm_poly_10 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "polynomial", cost = 10)
+pred_poly_10 <- predict(svm_poly_10, wine_test_standardized_full)
+conf_poly_10 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_poly_10)
+dok_poly_10 <- sum(diag(conf_poly_10)) / sum(conf_poly_10)
+
+#radial
+svm_radial_01 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "radial", cost = 0.1)
+pred_radial_01 <- predict(svm_radial_01, wine_test_standardized_full)
+conf_radial_01 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_radial_01)
+dok_radial_01 <- sum(diag(conf_radial_01)) / sum(conf_radial_01)
+
+svm_radial_1 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "radial", cost = 1)
+pred_radial_1 <- predict(svm_radial_1, wine_test_standardized_full)
+conf_radial_1 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_radial_1)
+dok_radial_1 <- sum(diag(conf_radial_1)) / sum(conf_radial_1)
+
+svm_radial_10 <- svm(class ~ ., data = wine_train_standardized_full, kernel = "radial", cost = 10)
+pred_radial_10 <- predict(svm_radial_10, wine_test_standardized_full)
+conf_radial_10 <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_radial_10)
+dok_radial_10 <- sum(diag(conf_radial_10)) / sum(conf_radial_10)
+```
+| Funkcja Jądra | Koszt (C = 0.1) | Koszt (C = 1) | Koszt (C = 10) |
+|:---|:---:|:---:|:---:|
+| **Liniowa** | `r round(dok_linear_01 * 100, 2)`% | `r round(dok_linear_1 * 100, 2)`% | `r round(dok_linear_10 * 100, 2)`% |
+| **Wielomianowa** | `r round(dok_poly_01 * 100, 2)`% | `r round(dok_poly_1 * 100, 2)`% | `r round(dok_poly_10 * 100, 2)`% |
+| **Radialna** | `r round(dok_radial_01 * 100, 2)`% | `r round(dok_radial_1 * 100, 2)`% | `r round(dok_radial_10 * 100, 2)`% |
+Dla jądra liniowego wynik jest taki sam nie zależnie od kosztu, może oznaczać że dane są separowalne liniową hiperpłaszczyzną. Dla wielomianowego najlepszy jest dla kosztu równego 1, dla kosztu równego 0.1 wynik wyraźnie odstaje od pozostałych metod negatywnie. Dla jądra radialnego widzimy wzrost dokładności wraz z kosztem, dla kosztu równego 10 otrzymujemy taką samą dokładność jak dla jądra liniowego.
+
+### Dostrajanie kosztu i gammy
+
+Dla jądra radialnego postrajamy się zoptymalizować parametry Gamma i C, w celu uzyskania najlepszej możliwej wersji tego klasyfikatora z tym jądrem dla tych danych. Oba parametry sprawdzamy dla wartości od $10^{-8}$ do $10^8$.
+```{r svmp2, include=FALSE}
+C_range <- 10^((-8):8)
+gamma_range <- 10^((-8):8)
+radial.tune <- tune(svm,class ~ .,
+                    data=wine_train_standardized_full,
+                    kernel="radial",
+                    ranges=list(cost=C_range,gamma=gamma_range))
+C.best <- radial.tune$best.parameters[["cost"]]
+gamma.best <- radial.tune$best.parameters[["gamma"]]
+
+svm_radial_tuned <- svm(class ~ ., 
+                        data = wine_train_standardized_full, 
+                        kernel = "radial",
+                        cost = C.best, 
+                        gamma = gamma.best)
+pred_radial_tuned <- predict(svm_radial_tuned, newdata = wine_test_standardized_full)
+conf_radial_tuned <- table(Rzeczywiste = wine_test_standardized_full$class, Prognozowane = pred_radial_tuned)
+dok_radial_tuned <- sum(diag(conf_radial_tuned)) / sum(conf_radial_tuned)
+```
+
+```{r svmp3,fig.cap="Mapa błędów walidacji krzyżowej" }
+dane_tune <- radial.tune$performances
+
+ggplot(dane_tune, aes(x = as.factor(cost), y = as.factor(gamma), fill = error)) +
+  geom_tile() +
+  scale_fill_gradient(low = "steelblue", high = "red") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Mapa błędów dla jądra radialnego",
+       x = "Koszt",
+       y = "Gamma",
+       fill = "Błąd klasyfikacji")
+```
+Widzimy że błąd spada wraz z rosnącym kosztem i spadającą gammą, jednak dla wielu układów parametrów dostajemy podobne wyniki.
+| SVM (Jądro radialne) | Dokładność |
+|:---|:---:|
+| **domyślne parametry** | `r round(dok_radial_1 * 100, 2)`% |
+| **Najlepsze C i Gamma** | `r round(dok_radial_tuned * 100, 2)`% |
+Widzimy że dzięki optymalizacji osiągneliśmy model działający idealnie dla naszych danych, klasyfikujący wszystkie wina poprawnie. Jest to zatem warta zastosowania metoda.
+
+## Podsumowanie
+
+Poniższa tabela zestawia dokładność 
+| Zastosowany model | Dokładność |
+|:---|:---:|
+| **Drzewo klasyfikacyjne** | `r round(dok_tree * 100, 2)`% |
+| **Bagging** | `r round(dok_tree_bag * 100, 2)`% |
+| **Boosting** | `r round(dok_tree_boost * 100, 2)`% |
+| **Lasy losowe** | `r round(dok_rf * 100, 2)`% |
+| **SVM(Jądro Liniowe (C=1))** | `r round(dok_linear_1 * 100, 2)`% |
+| **SVM(Jądro Wielomianowe (C=1))** | `r round(dok_poly_1 * 100, 2)`% |
+| **SVM(Jądro Radialne (C=1))** | `r round(dok_radial_1 * 100, 2)`% |
+| **SVM(Jądro Radialne (Zoptymalizowane))** | `r round(dok_radial_tuned * 100, 2)`% |
+
+Widzimy że metoda SVM radzi sobie zazwyczaj lepiej dla tych danych od rodzin klasyfikatorów, najlepiej radzi sobie idealnie klasyfikujący zoptymalizowany SVM z jądrem radialnym, niezoptymalizowane SVM są bliskie wynikom rodzin klasyfikatorów, pojedyncze drzewo klasyfikacyjne wyraźnie odstaje negatywnie.

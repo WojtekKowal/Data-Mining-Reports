@@ -1,0 +1,757 @@
+---
+title: "Sprawozdanie lista 3"
+author: "Piotr Kaptur, Wojciech Kowal"
+date: "`r Sys.Date()`"
+output: 
+  pdf_document:
+    toc: true
+    number_sections: true
+    latex_engine: xelatex
+    extra_dependencies: ["float"]
+lang: pl-PL
+---
+
+```{r setup, include=FALSE}
+#dev = "cairo_pdf" -polskie nzaki
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, dev = "cairo_pdf",fig.align = "center",fig.pos = "H",out.width = "100%")
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+pwr_colors <- c("setosa" = "#9B5DE5", "versicolor" = "#F15BB5", "virginica" = "#00BBF9")
+```
+
+# Klasyfikacja na bazie modelu regresji liniowej
+
+## Analizowane dane i struktura zbioru
+
+W analizie wykorzystano klasyczny zbiór danych `iris`, składający się z $n=150$ obserwacji opisujących trzy gatunki irysów (*setosa*, *versicolor* oraz *virginica*). Każdy kwiatek scharakteryzowano za pomocą czterech ciągłych cech morfologicznych: długości i szerokości działki kielicha (*Sepal*) oraz długości i szerokości płatka (*Petal*), co daje $p=4$ zmienne objaśniające $\mathbf{X} = (PL, PW, SL, SW)$.
+
+Poniższy wykres prezentuje idealnie zrównoważoną strukturę liczebnościową analizowanych klas w zbiorze danych (po 50 obiektów dla każdego gatunku).
+
+```{r class_vis, fig.width=6, fig.height=3.8, fig.cap="Rozkład liczebności poszczególnych gatunków irysów w analizowanym zbiorze danych."}
+ggplot(iris, aes(x = Species, fill = Species)) +
+  geom_bar(color = "white", alpha = 0.85, width = 0.6) +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5, fontface = "bold", size = 4) +
+  scale_fill_manual(values = pwr_colors) +
+  scale_x_discrete(
+    labels = c("setosa" = "Setosa", "versicolor" = "Versicolor", "virginica" = "Virginica")
+  ) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+  labs(
+    title = "Liczebność gatunków w zbiorze iris",
+    x = "Gatunek (klasa)",
+    y = "Liczba obserwacji"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "none",
+    panel.grid.major.x = element_blank()
+  )
+```
+
+## Podział danych na zbiór uczący i testowy
+
+W celu przeprowadzenia rzetelnej oceny zdolności predykcyjnych modeli, dane podzielono losowo na zbiór uczący (zawierający 2/3 ogółu danych, tj. 100 obserwacji) oraz zbiór testowy (zawierający 1/3 danych, tj. 50 obserwacji). Ustalone ziarno losowości (`set.seed(67)`) zapewnia pełną powtarzalność eksperymentu przy ponownym renderowaniu dokumentu.
+
+```{r data_split}
+set.seed(67)
+n <- nrow(iris)
+train_indices <- sample(1:n, size = floor(2/3 * n))
+
+train_data <- iris[train_indices, ]
+test_data  <- iris[-train_indices, ]
+
+cat("Podsumowanie podziału próby:\n")
+cat(" - Liczba obserwacji w zbiorze uczącym:", nrow(train_data), "\n")
+cat(" - Liczba obserwacji w zbiorze testowym:", nrow(test_data), "\n")
+```
+
+## Model wektorowej regresji liniowej i analiza prognoz
+
+Klasyfikacja wieloklasowa ($K=3$) przy użyciu regresji liniowej wymaga zastosowania macierzy zmiennych binarnych. Każda kolumna tej macierzy reprezentuje jedną klasę, przyjmując wartość 1, jeśli obiekt do niej należy, i 0 w przeciwnym wypadku. Następnie dopasowywany jest wielowymiarowy model liniowy, którego ciągłe prognozy interpretuje się jako szacowane prawdopodobieństwa przynależności.
+
+Końcowa decyzja klasyfikatora polega na przypisaniu obiektu do klasy o najwyższej wartości prognozy (*argmax*). 
+
+```{r linear_estimation_hidden}
+X <- as.matrix(cbind(1, iris[, 1:4]))
+Y_ind <- matrix(0, nrow = n, ncol = 3)
+colnames(Y_ind) <- c("setosa", "versicolor", "virginica")
+Y_ind[as.numeric(iris$Species) == 1, 1] <- 1
+Y_ind[as.numeric(iris$Species) == 2, 2] <- 1
+Y_ind[as.numeric(iris$Species) == 3, 3] <- 1
+
+B_hat <- solve(t(X) %*% X) %*% t(X) %*% Y_ind
+
+Y_hat <- X %*% B_hat
+colnames(Y_hat) <- c("setosa", "versicolor", "virginica")
+```
+
+```{r linear_predictions_plot, fig.width=7.5, fig.height=4.5, fig.cap="Wartości prognozowane otrzymane z modelu klasycznej regresji liniowej dla wszystkich obserwacji ze zbioru danych."}
+df_preds <- data.frame(ID = 1:n, as.data.frame(Y_hat)) %>%
+  pivot_longer(
+    cols      = c(setosa, versicolor, virginica),
+    names_to  = "Klasa_Prognozy",
+    values_to = "Wartosc"
+  ) %>%
+  mutate(
+    Klasa_Prognozy = factor(Klasa_Prognozy,
+                            levels = c("setosa", "versicolor", "virginica"),
+                            labels = c("Iris setosa", "Iris versicolor", "Iris virginica"))
+  )
+
+ggplot(df_preds, aes(x = ID, y = Wartosc, color = Klasa_Prognozy)) +
+  geom_hline(yintercept = 0, color = "gray70", linewidth = 0.4, linetype = "dotted") +
+  geom_hline(yintercept = 1, color = "gray70", linewidth = 0.4, linetype = "dotted") +
+  geom_point(alpha = 0.65, size = 1.2) +
+  geom_vline(xintercept = c(50.5, 100.5), linetype = "dashed",
+             color = "gray40", linewidth = 0.6) +
+  annotate("text", x = 25,   y = 1.55, label = "setosa",     size = 3, color = "gray35", fontface = "italic") +
+  annotate("text", x = 75.5, y = 1.55, label = "versicolor", size = 3, color = "gray35", fontface = "italic") +
+  annotate("text", x = 125,  y = 1.55, label = "virginica",  size = 3, color = "gray35", fontface = "italic") +
+  scale_color_manual(
+    values = c("Iris setosa"     = "#9B5DE5",
+               "Iris versicolor" = "#F15BB5",
+               "Iris virginica"  = "#00BBF9")
+  ) +
+  scale_y_continuous(breaks = seq(-0.4, 1.6, by = 0.4)) +
+  labs(
+    title = "Prognozy modelu regresji liniowej",
+    x = "Identyfikator obserwacji (ID)",
+    y = "Wartość prognozy",
+    color = "Profil klasy"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "bottom"
+  ) +
+  ylim(-0.4, 1.65)
+```
+
+```{r fit_linear_model}
+Y_train <- model.matrix(~ Species - 1, data = train_data)
+colnames(Y_train) <- c("setosa", "versicolor", "virginica")
+model_lin <- lm(Y_train ~ Sepal.Length + Sepal.Width + Petal.Length + Petal.Width,
+                data = train_data)
+
+predict_class <- function(model, newdata) {
+  preds   <- predict(model, newdata = newdata)
+  classes <- colnames(preds)[max.col(preds)]
+  return(factor(classes, levels = c("setosa", "versicolor", "virginica")))
+}
+
+pred_train_lin <- predict_class(model_lin, train_data)
+pred_test_lin  <- predict_class(model_lin, test_data)
+
+conf_train_lin <- table(Rzeczywiste = train_data$Species, Prognozowane = pred_train_lin)
+conf_test_lin  <- table(Rzeczywiste = test_data$Species,  Prognozowane = pred_test_lin)
+
+err_train_lin <- 1 - sum(diag(conf_train_lin)) / sum(conf_train_lin)
+err_test_lin  <- 1 - sum(diag(conf_test_lin))  / sum(conf_test_lin)
+```
+
+## Ocena jakości klasyfikatora liniowego i efekt maskowania
+
+Wyznaczone macierze pomyłek pozwalają precyzyjnie ocenić jakość predykcji klasyfikatora na danych uczących i testowych:
+
+```{r print_matrices_lin}
+cat("Macierz pomyłek – zbiór uczący (Model liniowy):\n")
+print(conf_train_lin)
+cat("\nBłąd klasyfikacji (zbiór uczący): ", sprintf("%.2f%%", err_train_lin * 100), "\n")
+cat("\nMacierz pomyłek – zbiór testowy (Model liniowy):\n")
+print(conf_test_lin)
+cat("\nBłąd klasyfikacji (zbiór testowy):", sprintf("%.2f%%", err_test_lin * 100), "\n")
+```
+
+**Zjawisko maskowania klas:**
+Zgodnie z teorią, klasyczny model liniowy oparty na wskaźnikach klas wykazuje tendencję do tzw. *maskowania klas*. Sytuacja ta zachodzi najczęściej w przypadku $K \ge 3$ klas, gdy jedna z nich (tutaj środkowa klasa *versicolor*) znajduje się w przestrzeni pomiędzy pozostałymi dwoma. Liniowa płaszczyzna regresji dopasowywana pod wpływem skrajnych klas potrafi całkowicie zasłonić klasę środkową. Przejawia się to w strukturze błędów – to właśnie klasa *versicolor* jest najczęściej błędnie przypisywana do sąsiednich gatunków.
+
+## Klasyfikacja w rozszerzonej przestrzeni cech (Model wielomianowy)
+
+Aby wyeliminować ograniczenia klasycznej regresji i pozwolić na elastyczne modelowanie nieliniowych granic decyzyjnych, rozszerzono przestrzeń cech wejściowych. Do modelu wprowadzono składniki wielomianowe drugiego stopnia, czyli kwadraty oryginalnych zmiennych ($PL^2, PW^2, SL^2, SW^2$) oraz ich wzajemne interakcje dwuczynnikowe ($PL \cdot PW$, $PL \cdot SW$, $PL \cdot SL$, $PW \cdot SL$, $PW \cdot SW$, $SL \cdot SW$).
+
+```{r poly_model_fit}
+formula_poly <- Y_train ~ (Sepal.Length + Sepal.Width + Petal.Length + Petal.Width)^2 +
+  I(Sepal.Length^2) + I(Sepal.Width^2) + I(Petal.Length^2) + I(Petal.Width^2)
+
+model_poly <- lm(formula_poly, data = train_data)
+
+pred_train_poly <- predict_class(model_poly, train_data)
+pred_test_poly  <- predict_class(model_poly, test_data)
+
+conf_train_poly <- table(Rzeczywiste = train_data$Species, Prognozowane = pred_train_poly)
+conf_test_poly  <- table(Rzeczywiste = test_data$Species,  Prognozowane = pred_test_poly)
+
+err_train_poly <- 1 - sum(diag(conf_train_poly)) / sum(conf_train_poly)
+err_test_poly  <- 1 - sum(diag(conf_test_poly))  / sum(conf_test_poly)
+```
+
+Nowo wyznaczone macierze pomyłek prezentują się następująco:
+
+```{r print_matrices_poly}
+cat("Macierz pomyłek – zbiór uczący (Przestrzeń wielomianowa):\n")
+print(conf_train_poly)
+cat("\nBłąd klasyfikacji (zbiór uczący): ", sprintf("%.2f%%", err_train_poly * 100), "\n")
+cat("\nMacierz pomyłek – zbiór testowy (Przestrzeń wielomianowa):\n")
+print(conf_test_poly)
+cat("\nBłąd klasyfikacji (zbiór testowy):", sprintf("%.2f%%", err_test_poly * 100), "\n")
+```
+
+Poniższy wykres umożliwia bezpośrednie porównanie wartości prognoz uzyskanych z modelu wielomianowego z modelem klasycznym.
+
+```{r poly_predictions_plot, fig.width=7.5, fig.height=4.5,fig.pos="H", fig.cap="Wartości prognozowane otrzymane z modelu regresji zbudowanego w rozszerzonej, wielomianowej przestrzeni cech dla obserwacji ze zbioru iris."}
+Y_ind_full <- model.matrix(~ Species - 1, data = iris)
+colnames(Y_ind_full) <- c("setosa", "versicolor", "virginica")
+
+formula_poly_full <- Y_ind_full ~ (Sepal.Length + Sepal.Width + Petal.Length + Petal.Width)^2 +
+  I(Sepal.Length^2) + I(Sepal.Width^2) + I(Petal.Length^2) + I(Petal.Width^2)
+
+model_poly_full <- lm(formula_poly_full, data = iris)
+Y_hat_poly <- predict(model_poly_full, newdata = iris)
+colnames(Y_hat_poly) <- c("setosa", "versicolor", "virginica")
+
+df_preds_poly <- data.frame(ID = 1:n, as.data.frame(Y_hat_poly)) %>%
+  pivot_longer(
+    cols      = c(setosa, versicolor, virginica),
+    names_to  = "Klasa_Prognozy",
+    values_to = "Wartosc"
+  ) %>%
+  mutate(
+    Klasa_Prognozy = factor(Klasa_Prognozy,
+                            levels = c("setosa", "versicolor", "virginica"),
+                            labels = c("Iris setosa", "Iris versicolor", "Iris virginica"))
+  )
+
+ggplot(df_preds_poly, aes(x = ID, y = Wartosc, color = Klasa_Prognozy)) +
+  geom_hline(yintercept = 0, color = "gray70", linewidth = 0.4, linetype = "dotted") +
+  geom_hline(yintercept = 1, color = "gray70", linewidth = 0.4, linetype = "dotted") +
+  geom_point(alpha = 0.65, size = 1.2) +
+  geom_vline(xintercept = c(50.5, 100.5), linetype = "dashed",
+             color = "gray40", linewidth = 0.6) +
+  annotate("text", x = 25,   y = 1.55, label = "setosa",     size = 3, color = "gray35", fontface = "italic") +
+  annotate("text", x = 75.5, y = 1.55, label = "versicolor", size = 3, color = "gray35", fontface = "italic") +
+  annotate("text", x = 125,  y = 1.55, label = "virginica",  size = 3, color = "gray35", fontface = "italic") +
+  scale_color_manual(
+    values = c("Iris setosa"     = "#9B5DE5",
+               "Iris versicolor" = "#F15BB5",
+               "Iris virginica"  = "#00BBF9")
+  ) +
+  scale_y_continuous(breaks = seq(-0.4, 1.6, by = 0.4)) +
+  labs(
+    title = "Prognozy modelu regresji wielomianowej",
+    x = "Identyfikator obserwacji (ID)",
+    y = "Wartość prognozy",
+    color = "Profil klasy"
+  ) +
+  theme_minimal(base_size = 11) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    legend.position = "bottom"
+  ) +
+  ylim(-0.4, 1.65)
+```
+
+### Podsumowanie i wnioski końcowe
+
+Zbiorcze zestawienie wskaźników błędów klasyfikacji dla obu rozważanych wariantów modeli przedstawia poniższa tabela:
+
+| Wariant klasyfikatora | Błąd na zbiorze uczącym | Błąd na zbiorze testowym |
+|:---|:---:|:---:|
+| Klasyczna regresja liniowa | `r sprintf("%.2f%%", err_train_lin * 100)` | `r sprintf("%.2f%%", err_test_lin * 100)` |
+| Regresja wielomianowa (stopień 2) | `r sprintf("%.2f%%", err_train_poly * 100)` | `r sprintf("%.2f%%", err_test_poly * 100)` |
+
+**Wnioski:**
+Wzbogacenie przestrzeni predyktorów o transformacje nieliniowe (kwadraty oraz interakcje cech) okazało się znakomitym rozwiązaniem problemu maskowania klas. Dzięki nieliniowemu rozszerzeniu matematyczna struktura modelu regresji zyskała elastyczność niezbędną do wytyczenia zaokrąglonych, skutecznych granic rozdzielających klasy. Przełożyło się to bezpośrednio na poprawę zdolności generalizacji klasyfikatora i znaczny spadek błędu klasyfikacji zarówno na zbiorze uczącym, jak i na niezależnej próbie testowej.
+
+\clearpage
+# Porównanie metod klasyfikacji
+
+```{r setup2, include=FALSE}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(ggrepel)
+library(HDclassif)
+library(caret)
+library(class)
+library(rpart)
+library(rpart.plot)
+library(e1071)
+library(ipred)
+library(knitr)
+data(wine)
+```
+## Dane
+Do porównania metod klasyfikacji został wybrany zbiór wine z pakietu HDclassif. Zbiór zawiera dane chemiczne włoskich win, wina pochodzą z tego samego regionu jednak są zrobione z różnych szczepów winorośli.
+
+```{r zmianadanych, include=FALSE}
+wine$class <-as.factor(wine$class)
+colnames(wine)<- c("class","Alcohol","Malic acid","Ash","Alcalinity of Ash","Magnesium","Total phenols","Flavonoids","Nonflavonoid phenols","Proanthocyanins","Color intensity","Hue","0D280/0D315 of diluted wines","Proline")
+str(wine)
+summary(wine)
+dim(wine)
+anyNA(wine)
+```
+Zbior ma 178 przypadków i 14 cech, jedna z nich class wczytuje sie jako int, jest to zmienna celu więc trzeba ją wczytać jako facto, są 3 klasyr. Zmienne również domyślnie nazywają się V1, V2, V3... ,V13. Postanowiłem to zamienić na nazwy odpowiadające tym czym faktycznie są te zmienne.
+```{r tabelka}
+var_names <- colnames(wine)
+kable(data.frame("Analizowane cechy" = var_names), 
+      caption = "Zestawienie cech w zbiorze wine",
+      align = "l")
+```
+W zbiorze nie ma braków ani nietypowych wartości.
+``` {r tabelka2, fig.cap="Rozkład liczebności poszczególnych szczepów wina."}
+ggplot(wine, aes(x = class, fill = class)) +
+  geom_bar(color = "black") +
+  geom_text(stat = "count", aes(label = after_stat(count)), vjust = -0.5) +
+  theme_minimal() +
+              labs(
+                title = "Rozkład liczebności klas w zbiorze wine",
+                x = "Szczep wina",
+                y = "Liczba obserwacji",
+              )
+```
+Najwięcej jest 2 klasy, gdybyśmy wszystkie przypisali do największej, to mielibyśmy `r round(mean(wine$class != 2) * 100, 2)`% błędu klasyfikacji.
+Wariancja cech różni się mocno
+```{r wykres, fig.cap="Wykres wariancji cech w skali logarytmicznej."}
+wine_long <- pivot_longer(wine, cols = -class, names_to = "feature", values_to ="value")
+ggplot(wine_long, aes(x = reorder(feature, value, FUN = var), y = value)) +
+  stat_summary(fun = var, geom = "bar", fill = "steelblue") +
+  scale_y_log10() +
+  coord_flip() +
+  theme_minimal() +
+  labs(
+    title = "Wariancja cech Wina w skali logarytmicznej",
+    x = "Cecha",
+    y = "Wariancja (skala logarytmiczna)"
+  )
+```
+Do zobaczenia zmienności cech przydatne również będą wykresy pudełkowe
+```{r wykres2,fig.cap="Wykres pudełkowy cech."}
+ggplot(wine_long, aes(x=feature, y =value, fill =feature))+
+  geom_boxplot()+
+  theme_minimal()+
+  labs(
+    title= "Wykresy pudełkowe cech wina",
+   x = NULL,
+    y = NULL,
+    fill = "cecha wina"
+  )+ 
+  theme(
+    axis.text.x = element_blank(),
+  )
+```
+I ten sam wykres po standaryzacji cech
+```{r wykres3, fig.cap="Wykres pudełkowy cech po standaryzacji."}
+wine_standardized <- wine
+wine_standardized[, 2:14] <- scale(wine[,2:14])
+wine_standardized_long <- pivot_longer(wine_standardized, cols = -class, names_to = "feature", values_to ="value")
+ggplot(wine_standardized_long, aes(x=feature, y =value, fill =feature))+
+  geom_boxplot()+
+  theme_minimal()+
+  labs(
+    title= "Wykresy pudełkowe cech wina po standaryzacji",
+    x = NULL,
+    y = NULL,
+    fill = "cecha wina"
+  )+ 
+  theme(
+    axis.text.x = element_blank(),
+  )
+```
+Jak widać standaryzacja jest potrzebna do metod, w których wielkość liczb ma znaczenie, w tym przypadku jest to metoda k-Nearest Neighbors, która liczy odległości.
+Do analizy, które zmienne posiadają najlepsze zdolności dyskryminujące lub predykcyjne, skorzystamy z wykresów pudełkowych dla każdej z cech, według szczepu winorośli(klasy).
+```{r wykres4, fig.cap="Wykresy pudełkowe cech według klasy."}
+ggplot(wine_long, aes(x= class, y=value, fill = class)) +
+  geom_boxplot()+
+  facet_wrap(~feature, scales ="free_y") +
+  theme_minimal()+
+  labs(title = "Wykresy pudełkowe cech wina, z podziałem na szczep",
+       x = NULL,
+       y = NULL,
+       fill = "szczep winorośli") +
+  theme(
+    axis.text.x = element_blank(),
+    legend.position = "bottom")
+```
+Najmniej nakładające się wykresy są dla cech Flavonoids, Color intensity, Proline, Total phenols i Alcohol, to te cechy będą w przyszłości używane jako podzbiór cech o najlepszej zdolności dyskryminacjnej. Zdolność dyskryminacyjną można również zobaczyć na wykresie rozrzutu tych cech.
+```{r wykres5, fig.cap="Wykres rozrzutu zmiennych Flavonoids i Color intensity."}
+ggplot(wine, aes(x= Flavonoids, y=`Color intensity`,colour = class)) +
+  geom_point()+
+  theme_minimal()+
+  labs(
+    title = "Wykres rozrzutu zmiennych Flavonoids i Color intensity",
+    colour = "szczep winorośli"
+  )
+```
+ Na powyższym przykładowym wykresie można zauważyć że klasy się grupują dzięki temu można dość dobrze je podzielić "na oko" co dobrze świadczy o ich zdolnościach dyskryminacyjnych.
+ 
+## Porównanie 3 algorytmów klasyfikiacji
+
+Będziemy używać algorytmów - k-Nearest Neighbors, classification trees i naive Bayes
+```{r przygotowanie_danych, include=FALSE}
+data <- createDataPartition(wine[,1],times =1,p = 0.75, list = FALSE)
+wine_train <- wine[data,]
+wine_test <- wine[-data,]
+skaler <- preProcess(wine_train[, 2:14], method = c("center", "scale"))
+#skalujemy za pomocą tych samych wag nauczonych na zbiorze treningowym
+wine_train_standardized <- predict(skaler, wine_train[, 2:14])
+wine_test_standardized  <- predict(skaler, wine_test[, 2:14])
+wine_train_standardized_full <-data.frame(class = wine_train$class, wine_train_standardized)
+wine_test_standardized_full <- data.frame(class = wine_test$class, wine_test_standardized)
+labelsreal <- wine_test$class
+labelsrealtrain <- wine_train$class
+```
+Dane dzielimy w skali 1:3, 25% danych znajdzie się w zbiorze testowym, a 75% w zbiorze treningowym, dla metody K-Nearest Neighbors, która jest wrażliwa na standaryzację danych, standaryzujemy dane, skalujemy za pomocą danych treningowych zarówno je jak i zbiór testowy, w celu uniknięcia data leakage. Do pozostałych algorytmów użyjemy danych nie ustandaryzowanych z powodu braku wpływu na wynik. Zacznijmy od porównania prostej wersji tych algorytmów z arbitralnie wybranymi parametrami.
+
+### K-Nearest Neighbors
+
+```{r knn1, include=FALSE}
+model.knn <- ipredknn(class ~ ., data = wine_train_standardized_full, k=4)
+
+labels_predicted <-predict(model.knn, wine_test_standardized_full, type="class")
+labels_predicted_train <-predict(model.knn, wine_train_standardized_full, type="class")
+```
+```{r knn2, }
+m_knn1 <- table(Rzeczywiste = labelsreal, Prognozy = labels_predicted)
+m_knn2 <- table(Rzeczywiste = labelsrealtrain, Prognozy = labels_predicted_train)
+err_knn_test <- 1 - (sum(diag(m_knn1)) / sum(m_knn1))
+err_knn_train <- 1 - (sum(diag(m_knn2)) / sum(m_knn2))
+
+kable(m_knn2, caption = "Macierz pomyłek algorytmu k-NN (zbiór uczący)", align = "c")
+kable(m_knn1, caption = "Macierz pomyłek algorytmu k-NN (zbiór testowy)", align = "c")
+```
+Powyższe macierze pomyłek prezentują skuteczność algorytmu k-Nearest Neighbors . Błąd klasyfikacji dla zbioru uczącego wyniósł **`r round(err_knn_train * 100, 2)`%**, natomiast dla testowego model osiągnął błąd na poziomie **`r round(err_knn_test * 100, 2)`%**. Algorytm spisał się podobnie dla obu zbiorów.
+### Drzewa klasyfikacyjne
+```{r tree1, include=FALSE}
+tree <- rpart(class ~ ., data = wine_train, method ="class")
+
+labels_predicted_tree <- predict(tree, wine_test, type ="class")
+labels_predicted_train_tree <- predict(tree, wine_train, type = "class")
+```
+```{r tree2}
+m_tree1 <- table(Rzeczywiste = labelsreal, Prognozy = labels_predicted_tree)
+m_tree2 <- table(Rzeczywiste = labelsrealtrain, Prognozy = labels_predicted_train_tree)
+err_tree_test <- 1 - (sum(diag(m_tree1)) / sum(m_tree1))
+err_tree_train <- 1 - (sum(diag(m_tree2)) / sum(m_tree2))
+
+kable(m_tree2, caption = "Macierz pomyłek algorytmu drzew decyzyjnych (zbiór uczący)", align = "c")
+kable(m_tree1, caption = "Macierz pomyłek algorytmu drzew decyzyjnych (zbiór testowy)", align = "c")
+```
+Powyższe macierze pomyłek prezentują skuteczność algorytmu drzew klasyfikacyjnych . Błąd klasyfikacji dla zbioru uczącego wyniósł **`r round(err_tree_train * 100, 2)`**%, natomiast dla testowego model osiągnął błąd na poziomie **`r round(err_tree_test * 100, 2)`**%. Tak duża różnica na niekorzyść zbioru testowego może wskazywać na znaczne przeuczenie algorytmu.
+
+### Naiwny klasyfikator Bayesa
+
+```{r bayes1, include =FALSE}
+model.nb <- naiveBayes(class ~ ., data = wine_train)
+
+labels_predicted_naive <- predict(model.nb, newdata = wine_test)
+labels_predicted_train_naive <- predict(model.nb, newdata = wine_train)
+```
+```{r bayes2}
+m_b1 <- table(Rzeczywiste = labelsreal, Prognozy = labels_predicted_naive)
+m_b2 <- table(Rzeczywiste = labelsrealtrain, Prognozy = labels_predicted_train_naive)
+err_nb_test <- 1 - (sum(diag(m_b1)) / sum(m_b1))
+err_nb_train <- 1 - (sum(diag(m_b2)) / sum(m_b2))
+
+kable(m_b2, caption = "Macierz pomyłek naiwnego klasyfikatora Bayesa (zbiór uczący)", align = "c")
+kable(m_b1, caption = "Macierz pomyłek naiwnego klasyfikatora Bayesa (zbiór testowy)", align = "c")
+```
+Powyższe macierze pomyłek prezentują skuteczność naiwnego klasyfikatora Bayesa . Błąd klasyfikacji dla zbioru uczącego wyniósł **`r round(err_nb_train * 100, 2)`**%, natomiast dla testowego model osiągnął błąd na poziomie **`r round(err_nb_test * 100, 2)`**%. Aglorytm poradził sobie podobnie dla obu zbiorów co świadczy o braku problemu przeuczenia.
+
+## Zaawansowana ocena dokładności
+Użyjemy metod walidacji krzyżowej polegającej na wielokrotnym dzieleniu na zbiór uczący i testowy oraz metody bootstrap polegającej na losowaniu ze zwracaniem. W przypadku metody walidacji krzyżowej będziemy używać 4-krotnej wersji w celu możliwości porównania z podziałem 1:3 dla zbioru testowego:uczącego używanego w podstawowych wersjach algorytmów
+
+### k-NN
+
+```{r cv_boot_knn, include=FALSE}
+my.ipredknn <- function(formula, data, ile.sasiadow) ipredknn(formula, data, k = ile.sasiadow)
+my.predict <- function(object, newdata) predict(object, newdata, type = "class")
+wine_standardized_df <- as.data.frame(wine_standardized)
+colnames(wine_standardized_df) <- make.names(colnames(wine_standardized_df))
+wynik_cv <- errorest(class ~ .,
+                     data = wine_standardized_df, #zmieniamy na wine_standardized_df żeby było całe, daje to lekki data leakage ale nie ma zbytnio jak robić wagi do skalowania tylko dla train
+                     model = my.ipredknn,
+                     predict = my.predict,
+                     estimator ="cv",
+                     est.para=control.errorest(k = 4),
+                     ile.sasiadow =4)
+wynik_bt <- errorest(class ~ .,
+                     data = wine_standardized_df,
+                     model = my.ipredknn,
+                     predict = my.predict,
+                     estimator="boot",   
+                     est.para=control.errorest(nboot = 50),
+                     ile.sasiadow =4)
+```
+Porównanie wyników dla K-NN:
+
+* Pojedynczy podział na zbiór testowy: **`r round(err_knn_test * 100, 2)`**%
+
+* -krotna Walidacja Krzyżowa: **`r round(wynik_cv$error * 100, 2)`**%
+
+* Metoda Bootstrap (50 powtórzeń): **`r round(wynik_bt$error * 100, 2)`**% \newline
+
+Wynik osiągnięty przy pojedynczym podziale na zbiór uczący i testowy okazał się lepszy niż te z zaawansowanych metod. Pojedynczy podział, zwłaszcza przy małej liczbie obserwacji, charakteryzuje się dużą podatnością na szczęście losowania danych. Bardziej zaawansowane metody dają mniej losowe wyniki, pozwalając zobaczyć pełniejszy obraz.
+
+### Drzewa klasyfikacyjne
+
+```{r cv_boot_tree, include=FALSE}
+tree.predict <- function(object, newdata) predict(object, newdata, type = "class")
+
+wynik_cv_tree <- errorest(
+  class ~ ., 
+  data = wine,
+  model = rpart,
+  predict = tree.predict,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4)
+)
+
+wynik_bt_tree <- errorest(
+  class ~ ., 
+  data = wine,
+  model = rpart,
+  predict = tree.predict,
+  estimator="boot",   
+  est.para=control.errorest(nboot = 50)
+)
+```
+Porównanie wyników dla drzew klasyfikacyjnych:
+
+* Pojedynczy podział na zbiór testowy: **`r round(err_tree_test * 100, 2)`**%
+
+* 4-krotna Walidacja Krzyżowa: **`r round(wynik_cv_tree$error * 100, 2)`**%
+
+* Metoda Bootstrap (50 powtórzeń): **`r round(wynik_bt_tree$error * 100, 2)`**% \newline
+
+Wynik osiągnięty przy pojedynczym podziale na zbiór uczący i testowy okazał się gorszy niż te z zaawansowanych metod. Co może wskazywać na to że nie mieliśmy szczęścia w zwykłej wersji.
+
+### Naiwny klasyfikator Bayesa
+
+```{r cv_boot_bayes, include=FALSE}
+predict.nb <- function(object, newdata) predict(object, newdata)
+
+wynik_cv_nb <- errorest(
+  class ~ ., 
+  data = wine,
+  model = naiveBayes,
+  predict = predict.nb,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4)
+)
+
+wynik_bt_nb <- errorest(
+  class ~ ., 
+  data = wine,
+  model = naiveBayes,
+  predict = predict.nb,
+  estimator="boot",   
+  est.para=control.errorest(nboot = 50)
+)
+```
+Porównanie wyników dla naiwnego klasyfikatora Bayesa:
+
+* Pojedynczy podział na zbiór testowy: **`r round(err_nb_test * 100, 2)`**%
+
+* 4-krotna Walidacja Krzyżowa: **`r round(wynik_cv_nb$error * 100, 2)`**%
+
+* Metoda Bootstrap (50 powtórzeń): **`r round(wynik_bt_nb$error * 100, 2)`**% \newline
+
+Wynik osiągnięty przy pojedynczym podziale na zbiór uczący i testowy okazał się lekko lepszy niż w przypadku bardziej zaawansowanych metod.
+
+## Różne parametry i podzbiory cech
+
+Zacznijmy od różnych podzbiorów cech do tych uznanych za najlepsze użyjemy -(Flavonoids, Color intensity, Proline, Total phenols i Alcohol). Do porównania używamy metody walidacji krzyżowej w celu zmniejszenia losowości. Za najgorsze zmienne czyli, te które najgorzej dzielą cechy (wykresy pudełkowe się nakładają) uznano -(Ash, Alcalinity of Ash, Hue, Magnesium, Malic acid), w celu równego porównania wybrano również 5 cech.
+
+### k-NN
+
+```{r subset_knn, include=FALSE}
+wynik_subset_knn <- errorest(class ~ Flavonoids + Proline + Color.intensity+ Alcohol +Total.phenols,
+                     data = wine_standardized_df,
+                     model = my.ipredknn,
+                     predict = my.predict,
+                     estimator ="cv",
+                     est.para=control.errorest(k = 4),
+                     ile.sasiadow =4)
+
+wynik_subset_bad_knn <- errorest(class ~ Ash + Alcalinity.of.Ash + Hue + Magnesium +Malic.acid,
+                         data = wine_standardized_df,
+                         model = my.ipredknn,
+                         predict = my.predict,
+                         estimator ="cv",
+                         est.para=control.errorest(k = 4),
+                         ile.sasiadow =4)
+```
+Porównanie wyników k-NN dla różnych podzbiorów cech:
+
+* Wszystkie zmienne: **`r round(wynik_cv$error * 100, 2)`**%
+
+* Najbardziej obiecujący podzbiór: **`r round(wynik_subset_knn$error * 100, 2)`**%
+
+* Najgorzej obiecujący podzbiór: **`r round(wynik_subset_bad_knn$error * 100, 2)`**%
+
+Ograniczenie modelu k-NN tylko do najlepszych cech poprawiło wynik o 1.12pp w porównaniu do modelu opartego na wszystkich zmiennych. Z kolei użycie najsłabszych cech znacząco zwiększyło błąd do 25.28%.
+
+### Drzewa Klastfikacjyne
+
+```{r subset_tree, include=FALSE}
+wynik_subset_tree <- errorest(
+  class ~ Flavonoids + Proline + `Color intensity`+ Alcohol +`Total phenols`, 
+  data = wine,
+  model = rpart,
+  predict = tree.predict,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4))
+
+wynik_subset_tree_bad <- errorest(
+  class ~ Ash + `Alcalinity of Ash` + Hue + Magnesium +`Malic acid`, 
+  data = wine,
+  model = rpart,
+  predict = tree.predict,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4))
+```
+Porównanie wyników Drzew Klasyfikacyjnych dla różnych podzbiorów cech:
+
+* Wszystkie zmienne: **`r round(wynik_cv_tree$error * 100, 2)`**%
+
+* Najbardziej obiecujący podzbiór: **`r round(wynik_subset_tree$error * 100, 2)`**%
+
+* Najgorzej obiecujący podzbiór: **`r round(wynik_subset_tree_bad$error * 100, 2)`**%
+
+Drzewa decyzyjne są skonstruowane tak żeby wybierać najlepsze punkty podziału, więc ograniczenie do 5 najlepszych cech pogorszyło wynik oznacza to, że straciliśmy jakieś optymalne punkty podziału odrzucając pozostałe cechy. Zmuszenie ich do używania wyłącznie słabych cech pogorszyło wynik.
+
+### Naiwny Klasyfikator Bayesa
+
+```{r subset_nb, include=FALSE}
+wynik_subset_nb <- errorest(
+  class ~ Flavonoids + Proline + `Color intensity`+ Alcohol +`Total phenols`, 
+  data = wine,
+  model = naiveBayes,
+  predict = predict.nb,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4))
+
+wynik_subset_nb_bad <- errorest(
+  class ~ `Alcalinity of Ash` + Hue + Magnesium +`Malic acid`, 
+  data = wine,
+  model = naiveBayes,
+  predict = predict.nb,
+  estimator = "cv", 
+  est.para = control.errorest(k = 4))
+```
+Porównanie wyników Naiwnego Klasyfikatora Bayesa dla różnych podzbiorów cech:
+
+* Wszystkie zmienne: **`r round(wynik_cv_nb$error * 100, 2)`**%
+
+* Najbardziej obiecujący podzbiór: **`r round(wynik_subset_nb$error * 100, 2)`**%
+
+* Najgorzej obiecujący podzbiór: **`r round(wynik_subset_nb_bad$error * 100, 2)`**%
+
+Naiwny klasyfikator Bayesa zakłada niezależność cech. Ograniczenie modelu do podzbioru danych powoduje stratę informacji dlatego podobnie jak w przypadku drzew klasyfikiacyjnych nastąpiło pogorszenie modelu w przypadku najlepszego podzbioru. Najgorszy podzbiór, tak jak w poprzednich przypadkach wypada słabo.
+
+## Wpływ parametrów
+Porównamy wpływ liczby sąsiadów na błąd klasyfikacji oraz głębokość drzewa i minimalną ilość przypadków w podziale. Używamy metody walidacji krzyżowej z wszystkimi parametrami.
+
+### ilość sąsiadów w metodzie k-NN
+Przetestowano ilości sąsiadów od 1 do 15.
+```{r param_knn, fig.cap="Błąd klasyfikacji w zależności od liczby sąsiadów."}
+k_values <- 1:15
+wyniki_knn_wiele <- sapply(k_values, function(k) errorest(class ~ ., 
+                                                          data = wine_standardized_df,
+                                                          model = my.ipredknn,
+                                                          predict = my.predict,
+                                                          estimator = "cv",
+                                                          est.para = control.errorest(k=4),
+                                                          ile.sasiadow = k)$error)
+
+df_knn_param <- data.frame(K = k_values, Blad = wyniki_knn_wiele)
+
+ggplot(df_knn_param, aes(x = K, y = Blad)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 2) +
+  scale_x_continuous(breaks = 1:15) +
+  theme_minimal() +
+  labs(x = "Liczba sąsiadów", y = "Błąd klasyfikacji")
+```
+Z powyższego wykresu ciężko jest stwierdzić, czy jest jakaś tendencja jednak widać że dla 1, 2, 4, 7, 12 algorytm radzi sobie słabo, a dla 6, 8 i 14 radzi sobie najlepiej, jeśliby spróbwać zauważyć jakąś prawidłowość to można zauważyc że 6 na 8 skrajnych przypadków jest przyjmowane przez parzyste liczby sąsiadów, może być to związane z rozwiązywaniem remisów.
+
+### Wpływ parametrów na dokładność Drzew Klasyfikacyjnych
+Przetestowano głębokość drzewa od 1 do 12
+```{r param_tree, fig.cap="Błąd klasyfikacji w zależności od maksymalnej głębokości drzewa."}
+depth_values <- 1:12
+wyniki_tree_wiele <- sapply(depth_values, function(g) 
+  errorest(class ~ ., 
+           data = wine, 
+           model = rpart,
+           predict = tree.predict, 
+           estimator = "cv", 
+           est.para = control.errorest(k=4), 
+           control = rpart.control(maxdepth = g))$error
+)
+
+df_tree_param <- data.frame(Glebokosc = depth_values, Blad = wyniki_tree_wiele)
+
+ggplot(df_tree_param, aes(x = Glebokosc, y = Blad)) +
+  geom_line(color = "forestgreen", linewidth = 1) +
+  geom_point(color = "forestgreen", size = 2) +
+  scale_x_continuous(breaks = 1:12) +
+  theme_minimal() +
+  labs(x = "Maksymalna głębokość drzewa", y = "Błąd klasyfikacji")
+```
+Z powyższego wykresu wynika, że na pewno nie powinniśmy używać maksymalnej głębokości 1. Dla rosnącej głębokości widzimy tendencję, jednak nie jest ona monotoniczna, jeśli chcemy małą głębokość warto jest wybrać 6
+
+Przetestowano minimalną liczbę obserwacji do podziału od 0 do 30.
+```{r param_tree_split, fig.cap="Błąd klasyfikacji w zależności od minimalnej liczby obserwacji do podziału."}
+split_values <- 0:30
+wyniki_tree_wiele_split <- sapply(split_values, function(g) 
+  errorest(class ~ ., 
+           data = wine, 
+           model = rpart,
+           predict = tree.predict, 
+           estimator = "cv", 
+           est.para = control.errorest(k=4), 
+           control = rpart.control(minsplit = g))$error
+)
+
+df_tree_split <- data.frame(Minsplit = split_values, Blad = wyniki_tree_wiele_split)
+
+ggplot(df_tree_split, aes(x = Minsplit, y = Blad)) +
+  geom_line(color = "darkorange", linewidth = 1) +
+  geom_point(color = "darkorange", size = 2) +
+  scale_x_continuous(breaks = 0:30) +
+  theme_minimal() +
+  labs(x = "Minimalna liczba obserwacji do podziału", y = "Błąd klasyfikacji")
+```
+Widzimy, że minimalny błąd jest dla 1 jako minimalnej liczby podziału, do 20 widzimy nie monotoniczną tendecję zwyżkową, dla 24 osiągamy najgorszy błąd.
+
+## Porównanie algorytmów
+
+Poniższa tabela porównuje błąd klasyfikacyjny 3 algorytmów dla metody walidacji krzyżowej z wszystkimi zmiennymi orz dla k-NN z najlepszymi parametrami, ponieważ algorytm zachowywał się w takim przypadku lepiej w odróżnieniu od pozostałych.
+
+
+| Metoda Klasyfikacji | Wykorzystane Cechy | Błąd Klasyfikacji |
+|:---|:---|:---:|
+| **Naiwny Klasyfikator Bayesa** | Wszystkie zmienne | **`r round(wynik_cv_nb$error * 100, 2)`%** |
+| **Drzewa Klasyfikacyjne** | Wszystkie zmienne | **`r round(wynik_cv_tree$error * 100, 2)`%** |
+| **k-Nearest Neighbors** | Wszystkie zmienne | **`r round(wynik_cv$error * 100, 2)`%** |
+| **k-Nearest Neighbors** | Wyselekcjonowany podzbiór | **`r round(wynik_subset_knn$error * 100, 2)`%** |
+
+Widzimy, że najlepszym algorytmem na tym zbiorze danych jest Naiwny Klasyfikator Bayesa, blisko jest k-NN zwłaszcza ten z wybranymi parametrami, drzewo klasyfikacyjne radzi sobie wyraźnie gorzej od pozostałch dwóch.
+
+## Podsumowanie
+
+### Parametry i podzbiory
+
+* Algorytm k-NN najlepiej radzi sobie z podzbiorem cech, które charakteryzują się większą zmiennością, optymalna ilość sąsiadów to 6 lub 8.
+* Drzewa Klasyfikacyjne najlepiej radzą sobie na pełnym podzbiorze cech z powodu umiejętnego wykorzystywania informacji zawartej w danych. Głębokość najlepsza znaleziona to 12, a najlepsza minimalna liczba obserwacji do podziału to 1, jednak przy 178 obserwacjach najprawdopodobniej prowadzi to do overfittingu.
+* Naiwny Klasyfikator Bayesa również najlepiej radzi sobie na pełnym podzbiorze cech.
+
+### Najlepsze metody dla danych
+Najlepszą metodą na tych danych jest Naiwny Klasyfikator Bayesa, k-NN może z nim konkurować w przypadku optymalnego wyboru podzbioru i liczby sąsiadów, Drzewa Klasyfikacjne ewidentnie odstają negatywnie, może być to spowodowane małą ilością danych i dużym problemem przeuczenia drzewa.
+
+### Wybór schematu oceny dokładności
+W przypadku testowanej walidacji krzyżowej oraz metody bootstrap, róznice między nimi były w okoliach 1 punktu procentowego, metoda bootstrap pokazywała wyższy błąd klasyfikacyjny.
